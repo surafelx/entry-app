@@ -128,7 +128,7 @@ async function processDecorativeMedia(entry) {
 
   const results = await Promise.allSettled([
     pixelDither(src.input, ditherOut, {
-      width: 200, up: 480, fps: 12, colors: 24, bayer: 4, quality: 65,
+      width: 200, up: 480, fps: 12, colors: 48, bayer: 3, quality: 75,
     }).then(() => log("media", `dither → ${base}.dither.webp`)),
     cartoonifyRetro(src.input, cartoonOut, { height: 360, fps: 24, crf: 28, preset: "fast" })
       .then(() => log("media", `retro cartoon → ${base}.cartoon.mp4`)),
