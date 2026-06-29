@@ -1,5 +1,5 @@
-const BASE = "https://143b-196-188-242-241.ngrok-free.app";
-const HEADERS = { "Content-Type": "application/json", "ngrok-skip-browser-warning": "true" };
+const BASE = "http://localhost:4000";
+const HEADERS = { "Content-Type": "application/json" };
 
 async function request(path, options) {
   const res = await fetch(`${BASE}/api${path}`, {
@@ -31,7 +31,6 @@ export async function uploadEntry({ blob, filename, source, title, durationSec, 
   fd.append("recordedAt", new Date().toISOString());
   const res = await fetch(`${BASE}/api/entries/upload`, {
     method: "POST", body: fd,
-    headers: { "ngrok-skip-browser-warning": "true" },
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -49,7 +48,6 @@ export async function reEditEntry(id, { blob, filename, transcript, frames, titl
   if (frames?.length) fd.append("frames", JSON.stringify(frames));
   const res = await fetch(`${BASE}/api/entries/${id}/re-edit`, {
     method: "POST", body: fd,
-    headers: { "ngrok-skip-browser-warning": "true" },
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));

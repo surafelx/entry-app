@@ -366,7 +366,7 @@ export default function App() {
                   ))}
                 </div>
               )}
-              {total === 0 && !loading && <p className="hero-line">hit record and tell me what's on your mind.</p>}
+              {total === 0 && !loading && <p className="hero-line">record something and i'll listen.</p>}
             </div>
           )}
 

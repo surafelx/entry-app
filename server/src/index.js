@@ -31,7 +31,6 @@ const ALLOWED_ORIGINS = [
   "http://localhost:5173",
   "https://client-lilac-eight-25.vercel.app",
   "https://client-ctt75ud6h-surafelxs-projects.vercel.app",
-  "https://143b-196-188-242-241.ngrok-free.app",
 ];
 const io = new Server(server, {
   cors: {
