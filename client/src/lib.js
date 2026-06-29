@@ -11,8 +11,14 @@ export const STATUS = {
 
 export const WORKING = ["ingested", "transcribing", "analyzing"];
 
-// Prefer cartoonified mp4, then compressed mp4, then raw media.
-const mediaUrl = (p) => p ? `${MEDIA_BASE}${p}` : "";
+// If path is already a full URL (Cloudinary), use it directly.
+// If it's a local /media/ path, prefix with the server base.
+const mediaUrl = (p) => {
+  if (!p) return "";
+  if (p.startsWith("http")) return p;
+  return `${MEDIA_BASE}${p}`;
+};
+
 export const playSrc = (e) => mediaUrl(e.cartoonPath || e.compressedPath || e.mediaPath);
 export const thumbSrc = (e) => mediaUrl(e.ditherPath || e.posterPath);
 
@@ -57,7 +63,6 @@ export const fmtTime = (d) =>
     minute: "2-digit",
   });
 
-// Roll up every entry's life sections into per-domain summaries.
 export function aggregateLife(entries) {
   const ready = entries.filter((e) => e.analysis);
   const byDomain = {};
@@ -97,7 +102,6 @@ export function aggregateLife(entries) {
   return { ready, domains, avg, topArc, total: ready.length };
 }
 
-// Surface recommended next actions from follow-ups + notable ideas.
 export function recommendTasks(entries) {
   const out = [];
   const seen = new Set();
@@ -108,7 +112,6 @@ export function recommendTasks(entries) {
     out.push({ id: key, text: text.trim(), kind, entry });
   };
   const ready = entries.filter((e) => e.analysis);
-  // Ideas with the highest novelty first, then open threads / follow-ups.
   for (const e of ready) {
     for (const idea of (e.analysis.ideas || []).filter((i) => i.novelty >= 0.5)) {
       push(idea.text, "idea", e);

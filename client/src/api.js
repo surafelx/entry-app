@@ -89,3 +89,7 @@ export const endStream = (roomName, title) =>
     method: "POST",
     body: JSON.stringify({ roomName, title, recordedAt: new Date().toISOString() }),
   });
+
+export const listNotes = () => request("/notes");
+export const createNote = (text) =>
+  request("/notes", { method: "POST", body: JSON.stringify({ text }) });

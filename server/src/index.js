@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { connectDB } from "./db.js";
 import entriesRouter from "./routes/entries.js";
 import livekitRouter from "./routes/livekit.js";
+import notesRouter from "./routes/notes.js";
 import { registerChatHandlers } from "./socket/chat.js";
 import { startBot } from "./telegram.js";
 
@@ -63,6 +64,7 @@ app.use("/media", (req, res, next) => {
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 app.use("/api/entries", entriesRouter);
 app.use("/api/livekit", livekitRouter);
+app.use("/api/notes", notesRouter);
 
 // ── Socket event handlers ────────────────────────────────────────────────
 io.on("connection", (socket) => {

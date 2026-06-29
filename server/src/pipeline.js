@@ -1,4 +1,5 @@
 import path from "node:path";
+import fs from "node:fs";
 import Entry from "./models/Entry.js";
 import Transcript from "./models/Transcript.js";
 import Analysis from "./models/Analysis.js";
@@ -10,84 +11,156 @@ import {
 } from "./media.js";
 import { whisperAvailable, transcribe } from "./transcribe.js";
 import { MEDIA_DIR } from "./index.js";
+import { uploadMedia, uploadImage, tmpPath, writeTmp, cleanupTmp } from "./cloudinary.js";
 
 const log = (tag, ...args) => console.log(`[pipeline:${tag}]`, ...args);
 const logErr = (tag, ...args) => console.error(`[pipeline:${tag}]`, ...args);
 
-// Resolve the on-disk paths/helpers for an entry's media, or null if none.
-function mediaCtx(entry) {
-  if (!entry.mediaPath?.startsWith("/media/")) return null;
-  const name = path.basename(entry.mediaPath);
-  return {
-    name,
-    input: path.join(MEDIA_DIR, name),
-    out: (suffix) => path.join(MEDIA_DIR, `${name}.${suffix}`),
-    url: (suffix) => `/media/${name}.${suffix}`,
-  };
+// Download a file from a URL to a local path
+async function download(url, localPath) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`download failed: ${res.status}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  fs.writeFileSync(localPath, buf);
+  return localPath;
 }
 
-// ── Essential media — what playback/analysis actually need. On critical path. ─
-// Kept lean (just compress + audio) so it doesn't starve whisper of CPU.
+// Derive a Cloudinary public_id from a URL or filename
+function pubIdFromUrl(url) {
+  // e.g. https://res.cloudinary.com/.../visualspam/abc123.min.mp4 → abc123
+  const parts = url.split("/");
+  const file = parts[parts.length - 1];
+  return file.replace(/\.[^.]+$/, "");
+}
+
+function pubIdFromFilename(filename) {
+  return filename.replace(/\.[^.]+$/, "");
+}
+
+// Resolve local input file — downloads from Cloudinary if needed
+async function resolveInput(mediaPath) {
+  if (!mediaPath) return null;
+
+  if (mediaPath.startsWith("/media/")) {
+    // Local file
+    const name = path.basename(mediaPath);
+    const local = path.join(MEDIA_DIR, name);
+    if (fs.existsSync(local)) return { name, input: local, local: true };
+    return null;
+  }
+
+  if (mediaPath.startsWith("http")) {
+    // Cloudinary URL — download to /tmp
+    const name = pubIdFromUrl(mediaPath).replace(/\//g, "_");
+    const ext = mediaPath.match(/\.(\w+)(\?.*)?$/)?.[1] || "mp4";
+    const localName = `${name}.${ext}`;
+    const local = tmpPath(localName);
+    if (fs.existsSync(local)) return { name: localName, input: local, local: false };
+    try {
+      await download(mediaPath, local);
+      log("download", `fetched ${mediaPath} → ${localName}`);
+      return { name: localName, input: local, local: false };
+    } catch (e) {
+      logErr("download", `failed to fetch ${mediaPath}:`, e.message);
+      return null;
+    }
+  }
+
+  return null;
+}
+
+// Upload a local file to Cloudinary and return the URL
+async function uploadDerived(localPath, publicId, resourceType = "video") {
+  try {
+    if (resourceType === "image") return await uploadImage(localPath, publicId);
+    return await uploadMedia(localPath, publicId);
+  } catch (e) {
+    logErr("upload", `failed to upload ${publicId}:`, e.message);
+    return null;
+  }
+}
+
+// ── Essential media — compress + audio ──────────────────────────────────────
 async function processEssentialMedia(entry) {
-  const ctx = mediaCtx(entry);
-  if (!ctx) return;
   if (!(await ffmpegAvailable())) { log("media", "ffmpeg not available, skipping"); return; }
-  const { name, input, out, url } = ctx;
+
+  const src = await resolveInput(entry.mediaPath);
+  if (!src) return;
+
+  const base = src.name.replace(/\.[^.]+$/, "");
+  const minOut = tmpPath(`${base}.min.mp4`);
+  const audioOut = tmpPath(`${base}.audio.mp3`);
 
   const results = await Promise.allSettled([
-    compress(input, out("min.mp4"), { height: 360, fps: 24, crf: 34, preset: "veryfast" })
-      .then(() => log("media", `compressed → ${name}.min.mp4`)),
-    extractAudio(input, out("audio.mp3"), { bitrate: "64k", mono: true })
-      .then(() => log("media", `audio → ${name}.audio.mp3`)),
+    compress(src.input, minOut, { height: 360, fps: 24, crf: 34, preset: "veryfast" })
+      .then(() => log("media", `compressed → ${base}.min.mp4`)),
+    extractAudio(src.input, audioOut, { bitrate: "64k", mono: true })
+      .then(() => log("media", `audio → ${base}.audio.mp3`)),
   ]);
 
   const set = {};
-  if (results[0].status === "fulfilled") set.compressedPath = url("min.mp4");
-  else logErr("media", "compress failed:", results[0].reason?.message);
-  if (results[1].status === "fulfilled") set.audioPath = url("audio.mp3");
-  else logErr("media", "extractAudio failed:", results[1].reason?.message);
+  if (results[0].status === "fulfilled") {
+    const url = await uploadDerived(minOut, `${base}.min`);
+    if (url) set.compressedPath = url;
+  } else logErr("media", "compress failed:", results[0].reason?.message);
+
+  if (results[1].status === "fulfilled") {
+    const url = await uploadDerived(audioOut, `${base}.audio`);
+    if (url) set.audioPath = url;
+  } else logErr("media", "extractAudio failed:", results[1].reason?.message);
+
+  cleanupTmp(`${base}.min.mp4`);
+  cleanupTmp(`${base}.audio.mp3`);
 
   if (Object.keys(set).length) await Entry.findByIdAndUpdate(entry._id, set);
 }
 
-// ── Decorative media — dither + cartoon previews. Run AFTER the entry is ─────
-// `ready` so the heavy ffmpeg passes never compete with whisper/analysis.
+// ── Decorative media — dither + cartoon ─────────────────────────────────────
 async function processDecorativeMedia(entry) {
-  const ctx = mediaCtx(entry);
-  if (!ctx) return;
   if (!(await ffmpegAvailable())) return;
-  const { name, input, out, url } = ctx;
+
+  const src = await resolveInput(entry.mediaPath);
+  if (!src) return;
+
+  const base = src.name.replace(/\.[^.]+$/, "");
+  const ditherOut = tmpPath(`${base}.dither.webp`);
+  const cartoonOut = tmpPath(`${base}.cartoon.mp4`);
 
   const results = await Promise.allSettled([
-    pixelDither(input, out("dither.webp"), {
+    pixelDither(src.input, ditherOut, {
       width: 200, up: 480, fps: 12, colors: 24, bayer: 4, quality: 65,
-    }).then(() => log("media", `dither → ${name}.dither.webp`)),
-    cartoonify(input, out("cartoon.mp4"), { height: 360, fps: 24, crf: 28, preset: "fast" })
-      .then(() => log("media", `cartoon → ${name}.cartoon.mp4`)),
+    }).then(() => log("media", `dither → ${base}.dither.webp`)),
+    cartoonify(src.input, cartoonOut, { height: 360, fps: 24, crf: 28, preset: "fast" })
+      .then(() => log("media", `cartoon → ${base}.cartoon.mp4`)),
   ]);
 
   const set = {};
-  if (results[0].status === "fulfilled") set.ditherPath = url("dither.webp");
-  else logErr("media", "pixelDither failed:", results[0].reason?.message);
-  if (results[1].status === "fulfilled") set.cartoonPath = url("cartoon.mp4");
-  else logErr("media", "cartoonify failed:", results[1].reason?.message);
+  if (results[0].status === "fulfilled") {
+    const url = await uploadDerived(ditherOut, `${base}.dither`);
+    if (url) set.ditherPath = url;
+  } else logErr("media", "pixelDither failed:", results[0].reason?.message);
+
+  if (results[1].status === "fulfilled") {
+    const url = await uploadDerived(cartoonOut, `${base}.cartoon`);
+    if (url) set.cartoonPath = url;
+  } else logErr("media", "cartoonify failed:", results[1].reason?.message);
+
+  cleanupTmp(`${base}.dither.webp`);
+  cleanupTmp(`${base}.cartoon.mp4`);
 
   if (Object.keys(set).length) await Entry.findByIdAndUpdate(entry._id, set);
 }
 
-// ── Extract server-side frames for visual analysis ──────────────────────────
+// ── Extract visual frames ───────────────────────────────────────────────────
 async function getVisualFrames(entry, clientFrames = []) {
-  // Prefer client-provided frames (higher quality, captured at recording time)
   if (clientFrames.length > 0) return clientFrames;
-
-  if (!entry.mediaPath?.startsWith("/media/")) return [];
   if (!(await ffmpegAvailable())) return [];
 
-  const name = path.basename(entry.mediaPath);
-  const input = path.join(MEDIA_DIR, name);
+  const src = await resolveInput(entry.mediaPath);
+  if (!src) return [];
 
   try {
-    const frames = await extractFrames(input, { count: 4, width: 512 });
+    const frames = await extractFrames(src.input, { count: 4, width: 512 });
     if (frames.length) log("frames", `extracted ${frames.length} frames from video`);
     return frames.map((f) => `data:${f.mimeType};base64,${f.base64}`);
   } catch (e) {
@@ -109,42 +182,49 @@ export async function runPipeline(entryId, transcriptText, clientFrames = []) {
     let segments = [];
 
     // ── Step 0: Auto-detect duration if missing ──
-    if (!entry.durationSec && entry.mediaPath?.startsWith("/media/") && (await ffmpegAvailable())) {
-      try {
-        const name = path.basename(entry.mediaPath);
-        const dur = await getDuration(path.join(MEDIA_DIR, name));
-        await Entry.findByIdAndUpdate(entryId, { durationSec: Math.round(dur) });
-        entry.durationSec = Math.round(dur);
-        log("main", `detected duration: ${entry.durationSec}s`);
-      } catch (e) {
-        logErr("main", "duration detection failed:", e.message);
+    if (!entry.durationSec && (await ffmpegAvailable())) {
+      const src = await resolveInput(entry.mediaPath);
+      if (src) {
+        try {
+          const dur = await getDuration(src.input);
+          await Entry.findByIdAndUpdate(entryId, { durationSec: Math.round(dur) });
+          entry.durationSec = Math.round(dur);
+          log("main", `detected duration: ${entry.durationSec}s`);
+        } catch (e) {
+          logErr("main", "duration detection failed:", e.message);
+        }
       }
     }
 
     // ── Step 0b: Extract poster if missing ──
-    if (!entry.posterPath && entry.mediaPath?.startsWith("/media/") && (await ffmpegAvailable())) {
-      try {
-        const name = path.basename(entry.mediaPath);
-        const posterName = `${name}.poster.jpg`;
-        await extractPoster(path.join(MEDIA_DIR, name), path.join(MEDIA_DIR, posterName));
-        await Entry.findByIdAndUpdate(entryId, { posterPath: `/media/${posterName}` });
-        log("main", `extracted poster → ${posterName}`);
-      } catch (e) {
-        logErr("main", "poster extraction failed:", e.message);
+    if (!entry.posterPath && (await ffmpegAvailable())) {
+      const src = await resolveInput(entry.mediaPath);
+      if (src) {
+        try {
+          const base = src.name.replace(/\.[^.]+$/, "");
+          const posterLocal = tmpPath(`${base}.poster.jpg`);
+          await extractPoster(src.input, posterLocal);
+          const posterUrl = await uploadDerived(posterLocal, `${base}.poster`, "image");
+          if (posterUrl) {
+            await Entry.findByIdAndUpdate(entryId, { posterPath: posterUrl });
+            log("main", `extracted poster → Cloudinary`);
+          }
+          cleanupTmp(`${base}.poster.jpg`);
+        } catch (e) {
+          logErr("main", "poster extraction failed:", e.message);
+        }
       }
     }
 
-    // ── Step 1 + Media: Run whisper transcription and media processing in parallel ──
+    // ── Step 1: Whisper + Media in parallel ──
     await Entry.findByIdAndUpdate(entryId, { status: "transcribing" });
 
-    const mediaFile =
-      entry.mediaPath?.startsWith("/media/") &&
-      path.join(MEDIA_DIR, path.basename(entry.mediaPath));
+    const src = await resolveInput(entry.mediaPath);
 
     const whisperTask = (async () => {
-      if (mediaFile && (await whisperAvailable())) {
+      if (src && (await whisperAvailable())) {
         try {
-          const r = await transcribe(mediaFile);
+          const r = await transcribe(src.input);
           if (r?.text) {
             text = r.text;
             segments = r.segments || [];
@@ -154,7 +234,6 @@ export async function runPipeline(entryId, transcriptText, clientFrames = []) {
           logErr("transcribe", "whisper failed:", e.message);
         }
       }
-      // Save transcript
       if (text) {
         await Transcript.findOneAndUpdate(
           { entry: entryId },
@@ -162,7 +241,6 @@ export async function runPipeline(entryId, transcriptText, clientFrames = []) {
           { upsert: true }
         );
       }
-      // Replace segments with time-aligned ones from whisper
       await Segment.deleteMany({ entry: entryId });
       if (segments.length) {
         await Segment.insertMany(
@@ -173,11 +251,9 @@ export async function runPipeline(entryId, transcriptText, clientFrames = []) {
     })();
 
     const mediaTask = processEssentialMedia(entry);
-
-    // Wait for both to finish
     await Promise.all([whisperTask, mediaTask]);
 
-    // ── Step 2: Extract visual frames for analysis ──
+    // ── Step 2: Visual frames ──
     const frames = await getVisualFrames(entry, clientFrames);
 
     // ── Step 3: AI Analysis ──
@@ -192,7 +268,6 @@ export async function runPipeline(entryId, transcriptText, clientFrames = []) {
       entryId,
     });
 
-    // Normalize lifeSections — some models return "description" instead of "summary"
     const lifeSections = (a.lifeSections || []).map((s) => ({
       domain: s.domain,
       status: s.status,
@@ -203,33 +278,22 @@ export async function runPipeline(entryId, transcriptText, clientFrames = []) {
       { entry: entryId },
       {
         entry: entryId,
-        summary: a.summary,
-        sentiment: a.sentiment,
-        trajectory: a.trajectory,
-        energy: a.energy,
-        emotions: a.emotions,
-        topics: a.topics,
-        ideas: a.ideas,
-        identity: a.identity,
-        quotes: a.quotes,
-        followUps: a.followUps,
-        lifeSections,
-        standing: a.standing,
-        visual: a.visual,
-        patterns: a.patterns || [],
-        growth: a.growth || "",
+        summary: a.summary, sentiment: a.sentiment, trajectory: a.trajectory,
+        energy: a.energy, emotions: a.emotions, topics: a.topics,
+        ideas: a.ideas, identity: a.identity, quotes: a.quotes,
+        followUps: a.followUps, lifeSections, standing: a.standing,
+        visual: a.visual, patterns: a.patterns || [], growth: a.growth || "",
         raw: a.raw,
       },
       { upsert: true }
     );
     log("analyze", `saved analysis (sentiment=${a.sentiment}, ${a.topics?.length || 0} topics)`);
 
-    // ── Step 4: Ready — the entry is now playable and analyzed ──
+    // ── Step 4: Ready ──
     await Entry.findByIdAndUpdate(entryId, { status: "ready" });
     log("main", `✓ entry ready ${entryId} in ${Date.now() - t0}ms`);
 
-    // ── Step 5: Decorative previews (dither/cartoon) — after ready, off the ──
-    // critical path so they never steal CPU from whisper/analysis.
+    // ── Step 5: Decorative (after ready) ──
     await processDecorativeMedia(entry).catch((e) =>
       logErr("media", "decorative media failed:", e.message)
     );

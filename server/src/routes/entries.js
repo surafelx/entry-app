@@ -9,13 +9,11 @@ import Segment from "../models/Segment.js";
 import Analysis from "../models/Analysis.js";
 import { MEDIA_DIR } from "../index.js";
 import { runPipeline } from "../pipeline.js";
+import { uploadMedia, uploadImage, deleteMedia } from "../cloudinary.js";
 
 const router = Router();
-
-// Wrap async handlers so thrown/rejected errors reach the error middleware.
 const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next);
 
-// Disk storage for recorded/uploaded clips.
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, MEDIA_DIR),
   filename: (_req, file, cb) => {
@@ -25,201 +23,180 @@ const storage = multer.diskStorage({
 });
 const upload = multer({
   storage,
-  // fieldSize is bumped so base64 video frames fit in a text field.
   limits: { fileSize: 200 * 1024 * 1024, fieldSize: 25 * 1024 * 1024 },
 });
 
-// Parse the `frames` field (JSON array of data-URLs) defensively.
 function parseFrames(raw) {
   if (!raw) return [];
   try {
     const arr = JSON.parse(raw);
     return Array.isArray(arr) ? arr.filter((f) => typeof f === "string") : [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
-// GET /api/entries — list, newest moment first
-router.get(
-  "/",
-  wrap(async (req, res) => {
-    const entries = await Entry.find()
-      .sort({ recordedAt: -1 })
-      .populate("analysis")
-      .lean({ virtuals: true });
-    res.json(entries);
-  })
-);
+// Derive a Cloudinary public_id from the local filename
+function pubId(filename) {
+  return filename.replace(/\.[^.]+$/, "");
+}
 
-// GET /api/entries/:id — full entry with relations
-router.get(
-  "/:id",
-  wrap(async (req, res) => {
-    const entry = await Entry.findById(req.params.id)
-      .populate("transcript")
-      .populate("analysis")
-      .populate({ path: "segments", options: { sort: { startSec: 1 } } })
-      .lean({ virtuals: true });
-    if (!entry) return res.status(404).json({ error: "Entry not found" });
-    res.json(entry);
-  })
-);
+// GET /api/entries
+router.get("/", wrap(async (_req, res) => {
+  const entries = await Entry.find().sort({ recordedAt: -1 }).populate("analysis").lean({ virtuals: true });
+  res.json(entries);
+}));
 
-// POST /api/entries/upload — receive a recorded/uploaded clip (multipart)
-router.post(
-  "/upload",
-  upload.single("media"),
-  wrap(async (req, res) => {
-    if (!req.file) return res.status(400).json({ error: "No media file" });
-    const { source = "upload", title, recordedAt, durationSec, transcript } = req.body;
-    const frames = parseFrames(req.body.frames);
+// GET /api/entries/:id
+router.get("/:id", wrap(async (req, res) => {
+  const entry = await Entry.findById(req.params.id)
+    .populate("transcript").populate("analysis")
+    .populate({ path: "segments", options: { sort: { startSec: 1 } } })
+    .lean({ virtuals: true });
+  if (!entry) return res.status(404).json({ error: "Entry not found" });
+  res.json(entry);
+}));
 
-    // Persist the first frame as a poster thumbnail so cards aren't black.
-    let posterPath;
-    const m = /^data:image\/jpeg;base64,(.+)$/.exec(frames[0] || "");
-    if (m) {
-      const posterName = `${req.file.filename}.poster.jpg`;
-      fs.writeFileSync(path.join(MEDIA_DIR, posterName), Buffer.from(m[1], "base64"));
-      posterPath = `/media/${posterName}`;
+// POST /api/entries/upload
+router.post("/upload", upload.single("media"), wrap(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No media file" });
+  const { source = "upload", title, recordedAt, durationSec, transcript } = req.body;
+  const frames = parseFrames(req.body.frames);
+
+  // Upload original to Cloudinary
+  const localFile = path.join(MEDIA_DIR, req.file.filename);
+  let mediaUrl;
+  try {
+    mediaUrl = await uploadMedia(localFile, pubId(req.file.filename));
+  } catch (e) {
+    console.error("[cloudinary] upload failed:", e.message);
+    mediaUrl = `/media/${req.file.filename}`; // fallback to local
+  }
+
+  // Poster from first client frame
+  let posterUrl;
+  const m = /^data:image\/jpeg;base64,(.+)$/.exec(frames[0] || "");
+  if (m) {
+    const posterFile = path.join(MEDIA_DIR, `${req.file.filename}.poster.jpg`);
+    fs.writeFileSync(posterFile, Buffer.from(m[1], "base64"));
+    try {
+      posterUrl = await uploadImage(posterFile, `${pubId(req.file.filename)}.poster`);
+    } catch {
+      posterUrl = `/media/${req.file.filename}.poster.jpg`;
     }
+  }
 
-    const entry = await Entry.create({
-      recordedAt: recordedAt ? new Date(recordedAt) : new Date(),
-      source,
-      title,
-      mediaPath: `/media/${req.file.filename}`,
-      posterPath,
-      durationSec: durationSec ? Math.round(Number(durationSec)) : undefined,
-      status: "ingested",
-    });
-    // Kick off transcribe → analyze (incl. visual frames) in the background.
-    runPipeline(entry._id, transcript, frames);
-    res.status(201).json(entry);
-  })
-);
+  const entry = await Entry.create({
+    recordedAt: recordedAt ? new Date(recordedAt) : new Date(),
+    source, title,
+    mediaPath: mediaUrl,
+    posterPath: posterUrl,
+    durationSec: durationSec ? Math.round(Number(durationSec)) : undefined,
+    status: "ingested",
+  });
 
-// POST /api/entries/:id/re-edit — replace media with an edited version, re-run pipeline
-router.post(
-  "/:id/re-edit",
-  upload.single("media"),
-  wrap(async (req, res) => {
-    if (!req.file) return res.status(400).json({ error: "No media file" });
+  runPipeline(entry._id, transcript, frames);
+  res.status(201).json(entry);
+}));
 
-    const entry = await Entry.findById(req.params.id);
-    if (!entry) return res.status(404).json({ error: "Entry not found" });
+// POST /api/entries/:id/re-edit
+router.post("/:id/re-edit", upload.single("media"), wrap(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No media file" });
+  const entry = await Entry.findById(req.params.id);
+  if (!entry) return res.status(404).json({ error: "Entry not found" });
 
-    // Clean up old derived media artifacts
-    for (const key of ["compressedPath", "cartoonPath", "audioPath", "ditherPath", "posterPath"]) {
-      if (entry[key]?.startsWith("/media/")) {
-        fs.rm(path.join(MEDIA_DIR, path.basename(entry[key])), { force: true }, () => {});
-      }
+  // Delete old Cloudinary assets
+  for (const key of ["compressedPath", "cartoonPath", "audioPath", "ditherPath", "posterPath"]) {
+    if (entry[key] && !entry[key].startsWith("/media/")) {
+      const id = entry[key].split("/").pop().replace(/\.[^.]+$/, "");
+      await deleteMedia(id).catch(() => {});
     }
+  }
 
-    // Persist new poster from frames if provided
-    let posterPath;
-    const frames = parseFrames(req.body.frames);
-    const m = /^data:image\/jpeg;base64,(.+)$/.exec(frames[0] || "");
-    if (m) {
-      const posterName = `${req.file.filename}.poster.jpg`;
-      fs.writeFileSync(path.join(MEDIA_DIR, posterName), Buffer.from(m[1], "base64"));
-      posterPath = `/media/${posterName}`;
+  // Upload new original
+  const localFile = path.join(MEDIA_DIR, req.file.filename);
+  let mediaUrl;
+  try {
+    mediaUrl = await uploadMedia(localFile, pubId(req.file.filename));
+  } catch {
+    mediaUrl = `/media/${req.file.filename}`;
+  }
+
+  let posterUrl;
+  const frames = parseFrames(req.body.frames);
+  const m = /^data:image\/jpeg;base64,(.+)$/.exec(frames[0] || "");
+  if (m) {
+    const posterFile = path.join(MEDIA_DIR, `${req.file.filename}.poster.jpg`);
+    fs.writeFileSync(posterFile, Buffer.from(m[1], "base64"));
+    try { posterUrl = await uploadImage(posterFile, `${pubId(req.file.filename)}.poster`); }
+    catch { posterUrl = `/media/${req.file.filename}.poster.jpg`; }
+  }
+
+  await Promise.all([
+    Transcript.deleteMany({ entry: entry._id }),
+    Segment.deleteMany({ entry: entry._id }),
+    Analysis.deleteMany({ entry: entry._id }),
+  ]);
+
+  const updates = { mediaPath: mediaUrl, status: "ingested" };
+  if (posterUrl) updates.posterPath = posterUrl;
+  if (req.body.title) updates.title = req.body.title;
+  if (req.body.durationSec) updates.durationSec = Math.round(Number(req.body.durationSec));
+
+  const updated = await Entry.findByIdAndUpdate(entry._id, updates, { new: true });
+  runPipeline(updated._id, req.body.transcript || "", frames);
+  res.json(updated);
+}));
+
+// POST /api/entries/:id/analyze
+router.post("/:id/analyze", wrap(async (req, res) => {
+  const entry = await Entry.findById(req.params.id);
+  if (!entry) return res.status(404).json({ error: "Entry not found" });
+  const existing = await Transcript.findOne({ entry: entry._id });
+  const text = req.body?.transcript || existing?.fullText || "";
+  runPipeline(entry._id, text);
+  res.status(202).json({ status: "analyzing" });
+}));
+
+// POST /api/entries
+router.post("/", wrap(async (req, res) => {
+  const { recordedAt, source, title, mediaPath, durationSec } = req.body;
+  const entry = await Entry.create({
+    recordedAt: recordedAt ? new Date(recordedAt) : new Date(),
+    source, title, mediaPath, durationSec,
+  });
+  res.status(201).json(entry);
+}));
+
+// PATCH /api/entries/:id
+router.patch("/:id", wrap(async (req, res) => {
+  const entry = await Entry.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+  if (!entry) return res.status(404).json({ error: "Entry not found" });
+  res.json(entry);
+}));
+
+// DELETE /api/entries/:id
+router.delete("/:id", wrap(async (req, res) => {
+  const entry = await Entry.findByIdAndDelete(req.params.id);
+  if (!entry) return res.status(404).json({ error: "Entry not found" });
+  await Promise.all([
+    Transcript.deleteOne({ entry: entry._id }),
+    Segment.deleteMany({ entry: entry._id }),
+    Analysis.deleteOne({ entry: entry._id }),
+  ]);
+  // Delete Cloudinary assets
+  for (const p of [entry.mediaPath, entry.posterPath, entry.compressedPath, entry.cartoonPath, entry.audioPath, entry.ditherPath]) {
+    if (p && !p.startsWith("/media/")) {
+      const id = p.split("/").pop().replace(/\.[^.]+$/, "");
+      await deleteMedia(id).catch(() => {});
     }
-
-    // Delete old transcript, segments, analysis
-    await Promise.all([
-      Transcript.deleteMany({ entry: entry._id }),
-      Segment.deleteMany({ entry: entry._id }),
-      Analysis.deleteMany({ entry: entry._id }),
-    ]);
-
-    // Update entry with new media
-    const updates = {
-      mediaPath: `/media/${req.file.filename}`,
-      status: "ingested",
-    };
-    if (posterPath) updates.posterPath = posterPath;
-    if (req.body.title) updates.title = req.body.title;
-    if (req.body.durationSec) updates.durationSec = Math.round(Number(req.body.durationSec));
-
-    const updated = await Entry.findByIdAndUpdate(entry._id, updates, { new: true });
-
-    // Re-run the full pipeline
-    const transcript = req.body.transcript || "";
-    runPipeline(updated._id, transcript, frames);
-
-    res.json(updated);
-  })
-);
-
-// POST /api/entries/:id/analyze — (re)run the analysis pipeline
-router.post(
-  "/:id/analyze",
-  wrap(async (req, res) => {
-    const entry = await Entry.findById(req.params.id);
-    if (!entry) return res.status(404).json({ error: "Entry not found" });
-    const existing = await Transcript.findOne({ entry: entry._id });
-    const text = req.body?.transcript || existing?.fullText || "";
-    runPipeline(entry._id, text);
-    res.status(202).json({ status: "analyzing" });
-  })
-);
-
-// POST /api/entries — create a new entry
-router.post(
-  "/",
-  wrap(async (req, res) => {
-    const { recordedAt, source, title, mediaPath, durationSec } = req.body;
-    const entry = await Entry.create({
-      recordedAt: recordedAt ? new Date(recordedAt) : new Date(),
-      source,
-      title,
-      mediaPath,
-      durationSec,
-    });
-    res.status(201).json(entry);
-  })
-);
-
-// PATCH /api/entries/:id — update fields (e.g. advance status)
-router.patch(
-  "/:id",
-  wrap(async (req, res) => {
-    const entry = await Entry.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-      runValidators: true,
-    });
-    if (!entry) return res.status(404).json({ error: "Entry not found" });
-    res.json(entry);
-  })
-);
-
-// DELETE /api/entries/:id — remove entry and its related docs
-router.delete(
-  "/:id",
-  wrap(async (req, res) => {
-    const entry = await Entry.findByIdAndDelete(req.params.id);
-    if (!entry) return res.status(404).json({ error: "Entry not found" });
-    await Promise.all([
-      Transcript.deleteOne({ entry: entry._id }),
-      Segment.deleteMany({ entry: entry._id }),
-      Analysis.deleteOne({ entry: entry._id }),
-    ]);
-    // Remove all backing files (raw, poster, compressed, cartoon, audio, dither).
-    for (const p of [
-      entry.mediaPath,
-      entry.posterPath,
-      entry.compressedPath,
-      entry.cartoonPath,
-      entry.audioPath,
-      entry.ditherPath,
-    ]) {
-      if (p?.startsWith("/media/")) {
-        fs.rm(path.join(MEDIA_DIR, path.basename(p)), { force: true }, () => {});
-      }
+  }
+  // Also clean up any leftover local files
+  if (entry.mediaPath?.startsWith("/media/")) {
+    const base = path.basename(entry.mediaPath);
+    for (const ext of ["", ".poster.jpg", ".min.mp4", ".audio.mp3", ".cartoon.mp4", ".dither.webp"]) {
+      fs.rm(path.join(MEDIA_DIR, base + ext), { force: true }, () => {});
     }
-    res.status(204).end();
-  })
-);
+  }
+  res.status(204).end();
+}));
 
 export default router;

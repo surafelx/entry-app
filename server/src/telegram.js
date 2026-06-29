@@ -1,8 +1,7 @@
 // Telegram bot — receives video/audio messages and creates diary entries.
 //
 // Usage: send any video, round video, voice note, or video note to the bot.
-// It downloads the file, creates an entry, and kicks off the pipeline.
-// Optionally add a caption to set the title.
+// It downloads the file, uploads to Cloudinary, creates an entry, and kicks off the pipeline.
 
 import { Bot } from "grammy";
 import fs from "node:fs";
@@ -11,12 +10,12 @@ import { randomUUID } from "node:crypto";
 import Entry from "./models/Entry.js";
 import { MEDIA_DIR } from "./index.js";
 import { runPipeline } from "./pipeline.js";
+import { uploadMedia } from "./cloudinary.js";
 
 const log = (tag, ...a) => console.log(`[tg:${tag}]`, ...a);
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
-// Allowed MIME types for video ingestion
 const VIDEO_TYPES = [
   "video/mp4", "video/webm", "video/quicktime", "video/x-msvideo",
   "video/x-matroska", "video/avi",
@@ -37,12 +36,10 @@ function mediaFilename(originalName, mime) {
   return `${Date.now()}-${randomUUID().slice(0, 8)}${ext}`;
 }
 
-// Save a Telegram file to disk and create an entry.
 async function ingestFile(ctx, file, title) {
   const userId = ctx.from?.id;
   log("ingest", `user=${userId} file_id=${file.file_id} size=${file.file_size || "?"}`);
 
-  // Download via Telegram API
   const tgFile = await ctx.api.getFile(file.file_id);
   const filename = mediaFilename(file.file_name || "video", file.mime_type || "video/mp4");
   const destPath = path.join(MEDIA_DIR, filename);
@@ -55,19 +52,25 @@ async function ingestFile(ctx, file, title) {
   fs.writeFileSync(destPath, buf);
   log("ingest", `saved ${buf.length} bytes → ${filename}`);
 
-  // Create entry
+  // Upload to Cloudinary
+  let mediaPath = `/media/${filename}`;
+  try {
+    mediaPath = await uploadMedia(destPath, filename.replace(/\.[^.]+$/, ""));
+    log("ingest", `uploaded to Cloudinary: ${mediaPath}`);
+  } catch (e) {
+    log("ingest", `Cloudinary upload failed, using local: ${e.message}`);
+  }
+
   const entry = await Entry.create({
     recordedAt: new Date(),
     source: "upload",
     title: title || file.file_name || null,
-    mediaPath: `/media/${filename}`,
+    mediaPath,
     status: "ingested",
   });
   log("ingest", `created entry ${entry._id}`);
 
-  // Kick off pipeline in background (fire-and-forget)
   runPipeline(entry._id, "", []);
-
   return entry;
 }
 
@@ -79,7 +82,6 @@ export function startBot() {
 
   const bot = new Bot(BOT_TOKEN);
 
-  // ── Commands ────────────────────────────────────────────────────────────
   bot.command("start", (ctx) =>
     ctx.reply(
       "send me a video, round video, or voice note and i'll turn it into a diary entry.\n\n" +
@@ -121,11 +123,9 @@ export function startBot() {
     ctx.reply(lines.join("\n"));
   });
 
-  // ── Handle video messages ───────────────────────────────────────────────
   bot.on("message:video", async (ctx) => {
     const file = ctx.message.video;
     const title = ctx.message.caption || null;
-
     await ctx.reply("downloading video...");
     try {
       const entry = await ingestFile(ctx, file, title);
@@ -139,14 +139,11 @@ export function startBot() {
     }
   });
 
-  // ── Handle round video notes ────────────────────────────────────────────
   bot.on("message:video_note", async (ctx) => {
     const file = ctx.message.video_note;
     const title = ctx.message.caption || null;
-
     await ctx.reply("downloading video note...");
     try {
-      // video_note has no mime_type, treat as mp4
       const tgFile = await ctx.api.getFile(file.file_id);
       const filename = mediaFilename(null, "video/mp4");
       const destPath = path.join(MEDIA_DIR, filename);
@@ -157,13 +154,17 @@ export function startBot() {
 
       const buf = Buffer.from(await res.arrayBuffer());
       fs.writeFileSync(destPath, buf);
-      log("ingest", `saved video note ${buf.length} bytes → ${filename}`);
+
+      let mediaPath = `/media/${filename}`;
+      try {
+        mediaPath = await uploadMedia(destPath, filename.replace(/\.[^.]+$/, ""));
+      } catch {}
 
       const entry = await Entry.create({
         recordedAt: new Date(),
         source: "upload",
         title: title || "video note",
-        mediaPath: `/media/${filename}`,
+        mediaPath,
         status: "ingested",
       });
 
@@ -179,11 +180,9 @@ export function startBot() {
     }
   });
 
-  // ── Handle voice messages ───────────────────────────────────────────────
   bot.on("message:voice", async (ctx) => {
     const file = ctx.message.voice;
     const title = ctx.message.caption || null;
-
     await ctx.reply("downloading voice note...");
     try {
       const tgFile = await ctx.api.getFile(file.file_id);
@@ -196,13 +195,17 @@ export function startBot() {
 
       const buf = Buffer.from(await res.arrayBuffer());
       fs.writeFileSync(destPath, buf);
-      log("ingest", `saved voice ${buf.length} bytes → ${filename}`);
+
+      let mediaPath = `/media/${filename}`;
+      try {
+        mediaPath = await uploadMedia(destPath, filename.replace(/\.[^.]+$/, ""));
+      } catch {}
 
       const entry = await Entry.create({
         recordedAt: new Date(),
         source: "upload",
         title: title || "voice note",
-        mediaPath: `/media/${filename}`,
+        mediaPath,
         status: "ingested",
       });
 
@@ -218,7 +221,6 @@ export function startBot() {
     }
   });
 
-  // ── Handle documents (video files sent as docs) ────────────────────────
   bot.on("message:document", async (ctx) => {
     const file = ctx.message.document;
     const isVideo = VIDEO_TYPES.includes(file.mime_type);
@@ -226,7 +228,6 @@ export function startBot() {
     if (!isVideo && !isAudio) {
       return ctx.reply("send a video or voice note, not a document.");
     }
-
     const title = ctx.message.caption || null;
     await ctx.reply(`downloading ${file.mime_type}...`);
     try {
@@ -241,12 +242,8 @@ export function startBot() {
     }
   });
 
-  // ── Error handler ──────────────────────────────────────────────────────
-  bot.catch((err) => {
-    log("error", "bot error:", err.message);
-  });
+  bot.catch((err) => { log("error", "bot error:", err.message); });
 
-  // Start polling
   bot.start({
     onStart: () => log("init", `bot running as @${bot.botInfo.username}`),
   });

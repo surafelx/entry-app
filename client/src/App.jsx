@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
-import { listEntries, getEntry, deleteEntry } from "./api.js";
+import { listEntries, getEntry, deleteEntry, listNotes, createNote } from "./api.js";
 import {
   WORKING, playSrc, moodLabel, sentimentEmoji,
   fmtDate, fmtTime, timeAgo, aggregateLife,
@@ -90,6 +90,9 @@ export default function App() {
   const [vidReady, setVidReady] = useState(false); // bg video loaded enough to play
   const [captionText, setCaptionText] = useState(""); // live subtitle synced to playback
   const [needsTap, setNeedsTap] = useState(() => "ontouchstart" in window && !localStorage.getItem("vspam_tapdone"));
+  const [musicOpen, setMusicOpen] = useState(false);
+  const [notes, setNotes] = useState([]);
+  const [noteText, setNoteText] = useState("");
 
   const idleRef = useRef(null);
   const pollRef = useRef(null);
@@ -156,6 +159,19 @@ export default function App() {
     return () => clearInterval(pollRef.current);
   }, [entries]);
 
+  // fetch notes
+  const refreshNotes = useCallback(async () => {
+    try { setNotes(await listNotes()); } catch {}
+  }, []);
+  useEffect(() => { refreshNotes(); }, []);
+
+  const submitNote = useCallback(async () => {
+    const t = noteText.trim();
+    if (!t) return;
+    setNoteText("");
+    try { await createNote(t); await refreshNotes(); } catch {}
+  }, [noteText, refreshNotes]);
+
   // ── audio ── music sits low under the video's own audio
   const initAudio = useCallback(() => {
     setSoundReady(true); // unlock the background video's audio (after a gesture)
@@ -177,12 +193,19 @@ export default function App() {
     if (bgVidRef.current) { bgVidRef.current.muted = false; bgVidRef.current.play().catch(() => {}); }
     setSoundReady(true);
   }, []);
-  const cycleMusic = useCallback(() => {
+  const cycleMusic = useCallback((target) => {
     if (!ctxRef.current) return initAudio();
+    if (target) {
+      // Set specific genre from dropdown
+      musicRef.current.setMood(target);
+      if (!musicGenre) musicRef.current.start();
+      musicRef.current.setVolume(0.08);
+      setMusicGenre(target);
+      return;
+    }
     const idx = GENRES.indexOf(musicGenre);
     const next = idx + 1;
     if (next >= GENRES.length) {
-      // last genre → turn off
       musicRef.current.stop();
       setMusicGenre(null);
     } else {
@@ -220,14 +243,16 @@ export default function App() {
     setPage(0);
     setFocusDomain(domain);
     setView("reader");
+    window.scrollTo({ top: 0, behavior: "instant" });
     try { setOpenEntry(await getEntry(entry._id)); }
     catch { setOpenEntry(entry); }
   }
   function openDomain(domain, notes) {
     setDomainData({ domain, notes });
     setView("domain");
+    window.scrollTo({ top: 0, behavior: "instant" });
   }
-  function go(v) { setView(v); setOpenEntry(null); setFocusDomain(null); setDomainData(null); }
+  function go(v) { setView(v); setOpenEntry(null); setFocusDomain(null); setDomainData(null); window.scrollTo({ top: 0, behavior: "instant" }); }
 
   async function onDelete(id) {
     setEntries((p) => p.filter((e) => e._id !== id));
@@ -354,19 +379,26 @@ export default function App() {
           )}
 
           {view === "community" && (
-            <div className="v-panel">
-              <ViewHead title="Community" onBack={() => go("home")} />
-              <div className="people">
-                {COMMUNITY.map((p) => (
-                  <div key={p.h} className="person2">
-                    <span className="avatar2" style={{ background: p.c }}>{p.i}</span>
-                    <div className="person2-id">
-                      <strong>{p.n}</strong>
-                      <span className="dim">@{p.h} · {p.streak}d streak</span>
-                    </div>
-                    <span className="person2-mood">{p.mood}</span>
+            <div className="v-panel notes-panel">
+              <ViewHead title="People" onBack={() => go("home")} />
+              <div className="notes-input-row">
+                <input
+                  className="notes-input"
+                  placeholder="say anything..."
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") submitNote(); }}
+                />
+                <button className="notes-send" onClick={submitNote}>→</button>
+              </div>
+              <div className="notes-list">
+                {notes.map((n) => (
+                  <div key={n._id} className="note-item">
+                    <span className="note-text">{n.text}</span>
+                    <span className="note-time">{timeAgo(n.createdAt)}</span>
                   </div>
                 ))}
+                {notes.length === 0 && <p className="notes-empty">nothing yet. be the first.</p>}
               </div>
             </div>
           )}
@@ -396,10 +428,7 @@ export default function App() {
         </nav>
 
         {/* music — fixed top-right corner */}
-        <button className={`music-corner ${musicGenre ? "on" : ""}`} data-genre={musicGenre || ""} onClick={cycleMusic}
-          title={musicGenre ? GENRE_LABELS[musicGenre] : "sound off"}>
-          {musicGenre ? "♫" : "♪"}
-        </button>
+        <MusicPicker musicGenre={musicGenre} cycleMusic={cycleMusic} musicOpen={musicOpen} setMusicOpen={setMusicOpen} />
       </div>
 
       {error && <div className="toast">{error}</div>}
@@ -517,6 +546,61 @@ function DomainCard({ domain, notes, onOpen, onBack }) {
               );
             })}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Music picker: tap to cycle, long-press for genre dropdown ──
+function MusicPicker({ musicGenre, cycleMusic, musicOpen, setMusicOpen }) {
+  const timerRef = useRef(null);
+  const openRef = useRef(false);
+
+  const start = useCallback(() => {
+    openRef.current = false;
+    timerRef.current = setTimeout(() => { openRef.current = true; setMusicOpen(true); }, 500);
+  }, [setMusicOpen]);
+
+  const end = useCallback(() => {
+    clearTimeout(timerRef.current);
+    if (!openRef.current) cycleMusic();
+  }, [cycleMusic]);
+
+  const selectGenre = useCallback((g) => {
+    setMusicOpen(false);
+    if (g !== musicGenre) cycleMusic(g);
+  }, [musicGenre, cycleMusic, setMusicOpen]);
+
+  // Close on outside tap
+  useEffect(() => {
+    if (!musicOpen) return;
+    const close = (e) => { if (!e.target.closest(".music-picker")) setMusicOpen(false); };
+    setTimeout(() => document.addEventListener("click", close), 0);
+    return () => document.removeEventListener("click", close);
+  }, [musicOpen, setMusicOpen]);
+
+  return (
+    <div className="music-picker">
+      <button
+        className={`music-corner ${musicGenre ? "on" : ""}`}
+        data-genre={musicGenre || ""}
+        onMouseDown={start} onMouseUp={end} onMouseLeave={() => clearTimeout(timerRef.current)}
+        onTouchStart={start} onTouchEnd={(e) => { e.preventDefault(); end(); }}
+        title={musicGenre ? GENRE_LABELS[musicGenre] : "sound off"}
+      >
+        {musicGenre ? "♫" : "♪"}
+      </button>
+      {musicOpen && (
+        <div className="music-dropdown">
+          {GENRES.map((g) => (
+            <button key={g} className={`music-opt ${musicGenre === g ? "on" : ""}`} onClick={() => selectGenre(g)}>
+              {GENRE_LABELS[g]}
+            </button>
+          ))}
+          <button className="music-opt off" onClick={() => { setMusicOpen(false); if (musicGenre) cycleMusic(); }}>
+            {musicGenre ? "stop" : "off"}
+          </button>
         </div>
       )}
     </div>
@@ -778,9 +862,4 @@ function CalendarView({ entries, onOpen, loading, onBack }) {
   );
 }
 
-const COMMUNITY = [
-  { n: "Maya Okafor", h: "mayao", i: "MO", c: "#ff4d2e", streak: 41, mood: "Bright" },
-  { n: "Theo Park", h: "theop", i: "TP", c: "#4d5dff", streak: 12, mood: "Even" },
-  { n: "Lena Vask", h: "lenav", i: "LV", c: "#22c55e", streak: 88, mood: "Warm" },
-  { n: "Sam Reyes", h: "samr", i: "SR", c: "#8b3fe8", streak: 63, mood: "Warm" },
-];
+
