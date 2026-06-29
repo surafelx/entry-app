@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+.env.*
+server/media/
+server/models/*.bin
+media-out/
+*.log
+.DS_Store
