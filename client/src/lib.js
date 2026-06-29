@@ -1,4 +1,5 @@
 // Shared formatting + aggregation helpers used across views.
+const API_BASE = "https://143b-196-188-242-241.ngrok-free.app";
 
 export const STATUS = {
   ingested: { c: "#6B6862", label: "Ingested" },
@@ -10,12 +11,11 @@ export const STATUS = {
 
 export const WORKING = ["ingested", "transcribing", "analyzing"];
 
-// Cloudinary URLs are used directly. Local /media/ fallback uses the API base.
+// Cloudinary URLs used directly. Local /media/ paths go through the server.
 const mediaUrl = (p) => {
   if (!p) return "";
   if (p.startsWith("http")) return p;
-  // Legacy local path — shouldn't happen after migration
-  return p;
+  return `${API_BASE}${p}`;
 };
 
 export const playSrc = (e) => mediaUrl(e.cartoonPath || e.compressedPath || e.mediaPath);
