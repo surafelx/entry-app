@@ -89,6 +89,7 @@ export default function App() {
   const [soundReady, setSoundReady] = useState(false); // bg video audio unlocked
   const [vidReady, setVidReady] = useState(false); // bg video loaded enough to play
   const [captionText, setCaptionText] = useState(""); // live subtitle synced to playback
+  const [needsTap, setNeedsTap] = useState(() => "ontouchstart" in window && !localStorage.getItem("vspam_tapdone"));
 
   const idleRef = useRef(null);
   const pollRef = useRef(null);
@@ -168,6 +169,13 @@ export default function App() {
     musicRef.current.setVolume(0.08);
     audioFxRef.current = createAudioFX(ctx);
     setMusicGenre("chill");
+  }, []);
+
+  const handleTapPlay = useCallback(() => {
+    setNeedsTap(false);
+    localStorage.setItem("vspam_tapdone", "1");
+    if (bgVidRef.current) { bgVidRef.current.muted = false; bgVidRef.current.play().catch(() => {}); }
+    setSoundReady(true);
   }, []);
   const cycleMusic = useCallback(() => {
     if (!ctxRef.current) return initAudio();
@@ -284,6 +292,15 @@ export default function App() {
         {((onHome || inReader) && visible) && <div className="bg-overlay" />}
         <div className="dither-overlay" />
       </div>
+
+      {/* Tap-to-play overlay for mobile */}
+      {needsTap && (
+        <button className="tap-play" onClick={handleTapPlay}>
+          <span className="tap-play-icon">▶</span>
+          <span className="tap-play-text">tap to play</span>
+        </button>
+      )}
+
       {/* Live video captions — only while the rest of the UI/text is hidden */}
       {captionText && vidReady && !uiShown && (
         <div className="bg-captions show">
