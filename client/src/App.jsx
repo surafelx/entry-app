@@ -306,28 +306,10 @@ export default function App() {
                 </p>
               )}
               {latest?.analysis && (
-                <button className="just-in-card" onClick={() => onOpen(latest)}>
-                  <div className="just-in-head">
-                    <span className="just-in-label">just in</span>
-                    <span className="just-in-time">{timeAgo(latest.recordedAt)}</span>
-                  </div>
-                  <h2 className="just-in-title">{latest.title || "something on my mind"}</h2>
-                  {latest.analysis.standing && (
-                    <p className="just-in-standing">{latest.analysis.standing}</p>
-                  )}
-                  <div className="just-in-stats">
-                    <span><b>{moodLabel(latest.analysis.sentiment)}</b><i>mood</i></span>
-                    <span><b>{ARC[latest.analysis.trajectory] || "→"} {latest.analysis.trajectory}</b><i>arc</i></span>
-                    <span><b>{latest.analysis.energy}</b><i>energy</i></span>
-                  </div>
-                  {(latest.analysis.lifeSections || []).length > 0 && (
-                    <div className="just-in-domains">
-                      {latest.analysis.lifeSections.map((s, i) => (
-                        <span key={i} className="just-in-domain">{s.domain}</span>
-                      ))}
-                    </div>
-                  )}
-                  <span className="just-in-arrow">open →</span>
+                <button className="latest-text" onClick={() => onOpen(latest)}>
+                  <span className="latest-label">just in</span>
+                  <span className="latest-title">{latest.title || "something on my mind"}</span>
+                  <span className="latest-arrow">→</span>
                 </button>
               )}
               {domains.length > 0 && (
