@@ -6,7 +6,7 @@ import Analysis from "./models/Analysis.js";
 import Segment from "./models/Segment.js";
 import { analyzeTranscript } from "./analyze.js";
 import {
-  ffmpegAvailable, compress, extractAudio, pixelDither, cartoonify,
+  ffmpegAvailable, compress, extractAudio, pixelDither, cartoonifyRetro,
   extractFrames, extractPoster, getDuration, probe,
 } from "./media.js";
 import { whisperAvailable, transcribe } from "./transcribe.js";
@@ -130,8 +130,8 @@ async function processDecorativeMedia(entry) {
     pixelDither(src.input, ditherOut, {
       width: 200, up: 480, fps: 12, colors: 24, bayer: 4, quality: 65,
     }).then(() => log("media", `dither → ${base}.dither.webp`)),
-    cartoonify(src.input, cartoonOut, { height: 360, fps: 24, crf: 28, preset: "fast" })
-      .then(() => log("media", `cartoon → ${base}.cartoon.mp4`)),
+    cartoonifyRetro(src.input, cartoonOut, { height: 360, fps: 24, crf: 28, preset: "fast" })
+      .then(() => log("media", `retro cartoon → ${base}.cartoon.mp4`)),
   ]);
 
   const set = {};

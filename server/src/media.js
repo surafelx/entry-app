@@ -261,3 +261,39 @@ export async function cartoonify(input, output, o = {}) {
   ]);
   return (await stat(output)).size;
 }
+
+// Retro vintage comic — warm sepia tones, halftone grain, faded blacks, paper texture
+export async function cartoonifyRetro(input, output, o = {}) {
+  const {
+    height = 640, fps = 24, crf = 28, preset = "fast",
+  } = o;
+  await ff([
+    ...range(o),
+    "-i", input,
+    "-filter_complex",
+    `[0:v]fps=${fps},scale=-2:${height},` +
+      // warm sepia base: desaturate then tint warm
+      `eq=saturation=0.4:contrast=1.2:brightness=0.05:gamma=1.1,` +
+      `colorbalance=rs=0.3:gs=0.1:bs=-0.15:rm=0.25:gm=0.08:bm=-0.12:rh=0.15:gh=0.05:bh=-0.08,` +
+      `hue=h=8:s=0.7,` +
+      // lift shadows (faded blacks) + crush midtones for that worn print look
+      `curves=all='0/0.06 0.12/0.18 0.35/0.48 0.6/0.72 0.85/0.92 1/0.97',` +
+      `unsharp=3:3:1.5:3:3:0.8,` +
+      // add film grain (old print texture)
+      `noise=c0s=12:c0f=t+u,` +
+      `split[main][edsrc2];` +
+      // softer edges — thicker, brownish outlines
+      `[edsrc2]edgedetect=low=0.05:high=0.15,` +
+      `eq=contrast=1.8:brightness=-0.05,` +
+      `colorbalance=rs=0.2:gs=0.1:bs=-0.05,` +
+      `negate[ed];` +
+      `[main][ed]blend=all_mode=multiply:all_opacity=0.7,` +
+      `vignette=PI/4:0.3[out]`,
+    "-map", "[out]", "-map", "0:a?",
+    "-c:v", "libx264", "-preset", preset, "-crf", String(crf), "-pix_fmt", "yuv420p",
+    "-c:a", "copy",
+    "-movflags", "+faststart",
+    output,
+  ]);
+  return (await stat(output)).size;
+}
