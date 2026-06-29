@@ -306,10 +306,28 @@ export default function App() {
                 </p>
               )}
               {latest?.analysis && (
-                <button className="latest-text" onClick={() => onOpen(latest)}>
-                  <span className="latest-label">just in</span>
-                  <span className="latest-title">{latest.title || "something on my mind"}</span>
-                  <span className="latest-arrow">→</span>
+                <button className="just-in-card" onClick={() => onOpen(latest)}>
+                  <div className="just-in-head">
+                    <span className="just-in-label">just in</span>
+                    <span className="just-in-time">{timeAgo(latest.recordedAt)}</span>
+                  </div>
+                  <h2 className="just-in-title">{latest.title || "something on my mind"}</h2>
+                  {latest.analysis.standing && (
+                    <p className="just-in-standing">{latest.analysis.standing}</p>
+                  )}
+                  <div className="just-in-stats">
+                    <span><b>{moodLabel(latest.analysis.sentiment)}</b><i>mood</i></span>
+                    <span><b>{ARC[latest.analysis.trajectory] || "→"} {latest.analysis.trajectory}</b><i>arc</i></span>
+                    <span><b>{latest.analysis.energy}</b><i>energy</i></span>
+                  </div>
+                  {(latest.analysis.lifeSections || []).length > 0 && (
+                    <div className="just-in-domains">
+                      {latest.analysis.lifeSections.map((s, i) => (
+                        <span key={i} className="just-in-domain">{s.domain}</span>
+                      ))}
+                    </div>
+                  )}
+                  <span className="just-in-arrow">open →</span>
                 </button>
               )}
               {domains.length > 0 && (
@@ -403,54 +421,103 @@ function ViewHead({ title, onBack }) {
 function DomainCard({ domain, notes, onOpen, onBack }) {
   const latest = notes[0];
   const a = latest?.entry?.analysis || {};
+  // Aggregate emotions across all notes for this domain
+  const allEmotions = [...new Set(notes.flatMap((n) => n.entry?.analysis?.emotions || []))];
+  const allFollowUps = [...new Set(notes.flatMap((n) => n.entry?.analysis?.followUps || []))];
+  const allQuotes = notes.flatMap((n) => (n.entry?.analysis?.quotes || []).map((q) => ({ q, title: n.title, date: n.recordedAt })));
+  // Sentiment trend: newest → oldest
+  const sentimentTrend = notes.map((n) => n.entry?.analysis?.sentiment).filter((v) => v != null);
+
   return (
     <div className="v-panel domain-card">
       <ViewHead title={domain} onBack={onBack} />
 
+      {/* Hero: latest standing */}
       {latest && (
-        <div className="domain-latest">
-          <span className="r-kicker">latest · {fmtDate(latest.recordedAt)}</span>
-          <span className={`cr-status ${latest.entry?.status}`}>{latest.status}</span>
-          <p className="domain-latest-summary">{latest.summary}</p>
-          {latest.entry?.analysis?.quotes?.length > 0 && (
-            <div className="domain-quotes">
-              {latest.entry.analysis.quotes.slice(0, 2).map((q, i) => (
-                <p key={i} className="r-quote">"{q}"</p>
-              ))}
-            </div>
-          )}
-          {latest.entry?.analysis?.ideas?.length > 0 && (
-            <div className="domain-ideas">
-              {latest.entry.analysis.ideas.slice(0, 2).map((id, i) => (
-                <p key={i} className="r-idea">→ {id?.text || id}</p>
-              ))}
+        <div className="domain-hero">
+          <div className="domain-hero-meta">
+            <span className="r-kicker">where you are now</span>
+            <span className={`cr-status ${latest.entry?.status}`}>{latest.status}</span>
+          </div>
+          {a.standing && <p className="domain-standing">{a.standing}</p>}
+          <div className="domain-hero-stats">
+            <span><b>{moodLabel(a.sentiment)}</b><i>mood</i></span>
+            <span><b>{ARC[a.trajectory] || "→"} {a.trajectory}</b><i>arc</i></span>
+            <span><b>{a.energy}</b><i>energy</i></span>
+          </div>
+          {sentimentTrend.length > 1 && (
+            <div className="domain-trend">
+              <span className="r-kicker">mood trend</span>
+              <div className="domain-trend-bar">
+                {sentimentTrend.map((s, i) => (
+                  <span key={i} className="domain-trend-dot" style={{
+                    background: s > 0.25 ? "#22c55e" : s < -0.25 ? "#ef4444" : "#eab308",
+                    opacity: 1 - i * 0.12,
+                  }} />
+                ))}
+              </div>
             </div>
           )}
         </div>
       )}
 
-      {notes.length > 1 && (
-        <div className="domain-timeline">
+      {/* Emotions */}
+      {allEmotions.length > 0 && (
+        <div className="domain-section">
+          <span className="r-kicker">emotions across {notes.length} moments</span>
+          <div className="r-tags r-emos">{allEmotions.slice(0, 8).map((e, i) => <span key={i}>{e}</span>)}</div>
+        </div>
+      )}
+
+      {/* Best quotes */}
+      {allQuotes.length > 0 && (
+        <div className="domain-section">
+          <span className="r-kicker">quotes</span>
+          {allQuotes.slice(0, 3).map((item, i) => (
+            <div key={i} className="domain-quote-card">
+              <p className="r-quote">"{item.q}"</p>
+              <span className="domain-quote-src">{item.title || "Untitled"} · {timeAgo(item.date)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Follow-ups / open threads */}
+      {allFollowUps.length > 0 && (
+        <div className="domain-section">
+          <span className="r-kicker">open threads</span>
+          {allFollowUps.slice(0, 4).map((f, i) => (
+            <p key={i} className="r-follow">? {f}</p>
+          ))}
+        </div>
+      )}
+
+      {/* Timeline */}
+      {notes.length > 0 && (
+        <div className="domain-section">
           <span className="r-kicker">timeline · {notes.length} mentions</span>
-          {notes.map((n, i) => {
-            const ea = n.entry?.analysis || {};
-            return (
-              <div key={i} className="domain-note" onClick={() => n.entry?.status === "ready" && onOpen(n.entry)}>
-                <div className="domain-note-head">
-                  <span className="domain-note-date">{fmtTime(n.recordedAt)} · {timeAgo(n.recordedAt)}</span>
-                  <span className={`cr-status ${n.entry?.status}`}>{n.status}</span>
+          <div className="domain-timeline">
+            {notes.map((n, i) => {
+              const ea = n.entry?.analysis || {};
+              const s = ea.sentiment;
+              return (
+                <div key={i} className="domain-note" onClick={() => n.entry?.status === "ready" && onOpen(n.entry)}>
+                  <div className="domain-note-head">
+                    <span className="domain-note-dot" style={{
+                      background: s > 0.25 ? "#22c55e" : s < -0.25 ? "#ef4444" : "#eab308",
+                    }} />
+                    <span className="domain-note-date">{fmtTime(n.recordedAt)} · {timeAgo(n.recordedAt)}</span>
+                    <span className={`cr-status ${n.entry?.status}`}>{n.status}</span>
+                  </div>
+                  <span className="domain-note-title">{n.title || "Untitled"}</span>
+                  <p className="domain-note-text">{n.summary}</p>
+                  {ea.quotes?.length > 0 && (
+                    <p className="domain-note-quote">"{ea.quotes[0]}"</p>
+                  )}
                 </div>
-                <span className="domain-note-title">{n.title || "Untitled"}</span>
-                <p className="domain-note-text">{n.summary}</p>
-                {ea.quotes?.length > 0 && (
-                  <p className="domain-note-quote">"{ea.quotes[0]}"</p>
-                )}
-                {ea.ideas?.length > 0 && (
-                  <p className="domain-note-idea">→ {ea.ideas[0]?.text || ea.ideas[0]}</p>
-                )}
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

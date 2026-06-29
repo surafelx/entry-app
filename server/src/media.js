@@ -231,36 +231,29 @@ export async function getDuration(input) {
 
 // 7. Cartoonify — absurd, melted cartoon look: massive saturation + contrast,
 //    crushed to a tiny grid (chunky pixels), reduced to a ~14-colour palette and
-//    Bayer-dithered, then neighbour-upscaled so the pixels + dither read huge.
+//    Smooth cartoon: bold outlines + vivid colours, upscaled cleanly (no pixel grid).
 export async function cartoonify(input, output, o = {}) {
   const {
-    height = 640, fps = 18, crf = 32, preset = "fast",
-    grid = 150, colors = 7, bayer = 5,
+    height = 640, fps = 24, crf = 30, preset = "fast",
   } = o;
   await ff([
     ...range(o),
     "-i", input,
     "-filter_complex",
-    // crush to a tiny grid first → chunkier pixels than before
-    `[0:v]fps=${fps},scale=${grid}:-2:flags=area,` +
-      // intense colour: bigger saturation/contrast, hue rotated for a "wrong"
-      // comic palette, hard gamma; then push saturation again via hue=s
-      `eq=saturation=13.0:contrast=4.0:brightness=-0.02:gamma=1.25,` +
-      `hue=h=18:s=2.2,` +
-      `unsharp=7:7:5.0:7:7:3.0,` +
-      `colorbalance=rs=0.5:gs=-0.1:bs=0.5:rm=0.4:gm=-0.1:bm=0.4,` +
-      // crush shadows hard so darks go near-black (deeper shadows)
-      `curves=all='0/0 0.2/0.28 0.5/0.8 0.78/0.96 1/1',` +
+    `[0:v]fps=${fps},scale=-2:${height},` +
+      // extreme colour: saturation 8×, contrast 3×, hue rotation for comic palette
+      `eq=saturation=8.0:contrast=3.0:brightness=0.02:gamma=1.3,` +
+      `hue=h=15:s=2.0,` +
+      `unsharp=5:5:4.0:5:5:2.0,` +
+      // heavy colour push — reds/blues boosted, greens muted
+      `colorbalance=rs=0.45:gs=-0.15:bs=0.45:rm=0.35:gm=-0.1:bm=0.35,` +
+      // crush shadows, punch highlights — comic-book contrast
+      `curves=all='0/0 0.15/0.22 0.45/0.75 0.75/0.95 1/1',` +
       `split[main][edsrc];` +
-      // edge map → invert so we get BLACK outlines, multiply onto the art
-      `[edsrc]edgedetect=low=0.04:high=0.16,negate,eq=contrast=2.0[ed];` +
-      `[main][ed]blend=all_mode=multiply[art];` +
-      `[art]split[a][b];` +
-      `[a]palettegen=max_colors=${colors}:stats_mode=diff[p];` +
-      // palette + heavier Bayer dither, then blow up with nearest-neighbour
-      `[b][p]paletteuse=dither=bayer:bayer_scale=${bayer}:diff_mode=rectangle,` +
-      `scale=-2:${height}:flags=neighbor[v]`,
-    "-map", "[v]", "-map", "0:a?",
+      // edge map → invert for BLACK outlines, boost contrast
+      `[edsrc]edgedetect=low=0.03:high=0.12,negate,eq=contrast=2.5[ed];` +
+      `[main][ed]blend=all_mode=multiply[out]`,
+    "-map", "[out]", "-map", "0:a?",
     "-c:v", "libx264", "-preset", preset, "-crf", String(crf), "-pix_fmt", "yuv420p",
     "-c:a", "copy",
     "-movflags", "+faststart",

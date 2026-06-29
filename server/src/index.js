@@ -15,6 +15,7 @@ import { startBot } from "./telegram.js";
 const PORT = process.env.PORT || 4000;
 const MONGODB_URI =
   process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/entry_app";
+const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "http://localhost:5173";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const MEDIA_DIR = path.join(__dirname, "..", "media");
@@ -24,9 +25,16 @@ const app = express();
 const server = createServer(app);
 
 // ── Socket.IO ────────────────────────────────────────────────────────────
+const ALLOWED_ORIGINS = [
+  CLIENT_ORIGIN,
+  "http://localhost:5173",
+  "https://client-lilac-eight-25.vercel.app",
+  "https://client-ctt75ud6h-surafelxs-projects.vercel.app",
+  "https://143b-196-188-242-241.ngrok-free.app",
+];
 const io = new Server(server, {
   cors: {
-    origin: process.env.CLIENT_ORIGIN || "http://localhost:5173",
+    origin: ALLOWED_ORIGINS,
     methods: ["GET", "POST"],
     credentials: true,
   },
@@ -37,11 +45,20 @@ const io = new Server(server, {
 app.set("io", io);
 
 // ── Express middleware ────────────────────────────────────────────────────
-app.use(cors({ origin: process.env.CLIENT_ORIGIN || "http://localhost:5173" }));
+app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
 app.use(express.json({ limit: "2mb" }));
 
-// Serve recorded/uploaded media for playback in the client.
-app.use("/media", express.static(MEDIA_DIR));
+// Serve recorded/uploaded media for playback in the client (with CORS for cross-origin video).
+app.use("/media", (req, res, next) => {
+  const origin = req.headers.origin;
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+  res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Range");
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+}, express.static(MEDIA_DIR));
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 app.use("/api/entries", entriesRouter);

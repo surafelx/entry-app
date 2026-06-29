@@ -1,4 +1,5 @@
 // Shared formatting + aggregation helpers used across views.
+const MEDIA_BASE = "https://143b-196-188-242-241.ngrok-free.app";
 
 export const STATUS = {
   ingested: { c: "#6B6862", label: "Ingested" },
@@ -11,8 +12,9 @@ export const STATUS = {
 export const WORKING = ["ingested", "transcribing", "analyzing"];
 
 // Prefer cartoonified mp4, then compressed mp4, then raw media.
-export const playSrc = (e) => e.cartoonPath || e.compressedPath || e.mediaPath;
-export const thumbSrc = (e) => e.ditherPath || e.posterPath;
+const mediaUrl = (p) => p ? `${MEDIA_BASE}${p}` : "";
+export const playSrc = (e) => mediaUrl(e.cartoonPath || e.compressedPath || e.mediaPath);
+export const thumbSrc = (e) => mediaUrl(e.ditherPath || e.posterPath);
 
 export const sentimentEmoji = (v) =>
   v == null ? "" : v > 0.25 ? "😊" : v < -0.25 ? "😔" : "😐";

@@ -1,7 +1,9 @@
-// Thin fetch wrapper. Vite proxies /api to the Express server in dev.
+const BASE = "https://143b-196-188-242-241.ngrok-free.app";
+const HEADERS = { "Content-Type": "application/json", "ngrok-skip-browser-warning": "true" };
+
 async function request(path, options) {
-  const res = await fetch(`/api${path}`, {
-    headers: { "Content-Type": "application/json" },
+  const res = await fetch(`${BASE}/api${path}`, {
+    headers: HEADERS,
     ...options,
   });
   if (!res.ok) {
@@ -18,7 +20,6 @@ export const createEntry = (data) =>
 export const deleteEntry = (id) =>
   request(`/entries/${id}`, { method: "DELETE" });
 
-// Upload a recorded/selected clip as multipart form-data.
 export async function uploadEntry({ blob, filename, source, title, durationSec, transcript, frames }) {
   const fd = new FormData();
   fd.append("media", blob, filename);
@@ -28,7 +29,10 @@ export async function uploadEntry({ blob, filename, source, title, durationSec, 
   if (transcript) fd.append("transcript", transcript);
   if (frames?.length) fd.append("frames", JSON.stringify(frames));
   fd.append("recordedAt", new Date().toISOString());
-  const res = await fetch("/api/entries/upload", { method: "POST", body: fd });
+  const res = await fetch(`${BASE}/api/entries/upload`, {
+    method: "POST", body: fd,
+    headers: { "ngrok-skip-browser-warning": "true" },
+  });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `Upload failed: ${res.status}`);
@@ -36,7 +40,6 @@ export async function uploadEntry({ blob, filename, source, title, durationSec, 
   return res.json();
 }
 
-// Re-edit an existing entry: replace media, re-run pipeline.
 export async function reEditEntry(id, { blob, filename, transcript, frames, title, durationSec }) {
   const fd = new FormData();
   fd.append("media", blob, filename);
@@ -44,7 +47,10 @@ export async function reEditEntry(id, { blob, filename, transcript, frames, titl
   if (durationSec != null) fd.append("durationSec", String(durationSec));
   if (transcript) fd.append("transcript", transcript);
   if (frames?.length) fd.append("frames", JSON.stringify(frames));
-  const res = await fetch(`/api/entries/${id}/re-edit`, { method: "POST", body: fd });
+  const res = await fetch(`${BASE}/api/entries/${id}/re-edit`, {
+    method: "POST", body: fd,
+    headers: { "ngrok-skip-browser-warning": "true" },
+  });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `Re-edit failed: ${res.status}`);
@@ -52,7 +58,6 @@ export async function reEditEntry(id, { blob, filename, transcript, frames, titl
   return res.json();
 }
 
-// ── LiveKit ──────────────────────────────────────────────────────────────
 export const createLiveKitToken = (roomName, participantName) =>
   request("/livekit/token", {
     method: "POST",
