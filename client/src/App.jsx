@@ -101,6 +101,7 @@ export default function App() {
   const audioFxRef = useRef(null);
   const ctxRef = useRef(null);
   const bgVidRef = useRef(null);
+  const stageRef = useRef(null);
 
   // Keep the background video playing — resume whenever the tab is visible
   // (Chrome power-pauses muted background video when the tab is hidden).
@@ -239,20 +240,22 @@ export default function App() {
   const uiShown = visible || (!onHome && !inReader);
 
   // ── open an entry inline as the reader (optionally focused on a domain) ──
+  function scrollToTop() { stageRef.current?.scrollTo({ top: 0, behavior: "instant" }); }
+
   async function onOpen(entry, domain = null) {
     setPage(0);
     setFocusDomain(domain);
     setView("reader");
-    window.scrollTo({ top: 0, behavior: "instant" });
+    scrollToTop();
     try { setOpenEntry(await getEntry(entry._id)); }
     catch { setOpenEntry(entry); }
   }
   function openDomain(domain, notes) {
     setDomainData({ domain, notes });
     setView("domain");
-    window.scrollTo({ top: 0, behavior: "instant" });
+    scrollToTop();
   }
-  function go(v) { setView(v); setOpenEntry(null); setFocusDomain(null); setDomainData(null); window.scrollTo({ top: 0, behavior: "instant" }); }
+  function go(v) { setView(v); setOpenEntry(null); setFocusDomain(null); setDomainData(null); scrollToTop(); }
 
   async function onDelete(id) {
     setEntries((p) => p.filter((e) => e._id !== id));
@@ -338,7 +341,7 @@ export default function App() {
       {/* shell — no header; nav lives in a minimal floating dock */}
       <div className={`shell ${uiShown ? "show" : ""}`}>
         {/* inline stage — content changes right here */}
-        <main className="stage">
+        <main className="stage" ref={stageRef}>
           {view === "home" && (
             <div className="v-home">
               <h1 className="hero" data-text="visualspam">visualspam<span className="dot">.</span></h1>
