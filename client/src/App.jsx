@@ -381,7 +381,7 @@ export default function App() {
               )}
               {domains.length > 0 && (
                 <div className="dom-grid">
-                  {domains.map(({ domain, notes }) => {
+                  {domains.slice(0, 6).map(({ domain, notes }) => {
                     const latest = notes[0];
                     const status = latest?.status || "";
                     return (
@@ -515,13 +515,6 @@ export default function App() {
               <span className="nav-label">{n.label}</span>
             </button>
           ))}
-          <button className={`nav-item ${view === "visuals" ? "on" : ""}`}
-            onClick={() => go("visuals")} title="insights">
-            <svg className="nav-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 3v18h18"/><path d="M7 16l4-5 4 3 5-7"/>
-            </svg>
-            <span className="nav-label">insights</span>
-          </button>
         </nav>
 
         {/* music — fixed top-right corner */}

@@ -116,10 +116,11 @@ function sendWithEffects(bot, ctx, entry, effects) {
       const lines = [
         `${mood} ${full.title || "Untitled"}${dur ? ` · ${dur}` : ""}`,
         "",
-        a.standing || a.summary || "",
+        (a.standing || a.summary || "").slice(0, 300),
         tags ? `\n${tags}` : "",
       ].filter(Boolean);
-      const caption = lines.join("\n");
+      let caption = lines.join("\n");
+      if (caption.length > 1024) caption = caption.slice(0, 1020) + "…";
 
       // Send the processed video (retro/compressed/whatever is best)
       const videoUrl = full.retroPath || full.cartoonPath || full.compressedPath || full.mediaPath;
