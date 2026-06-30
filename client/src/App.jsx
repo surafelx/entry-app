@@ -385,12 +385,7 @@ export default function App() {
                   <span className="latest-arrow">→</span>
                 </button>
               )}
-              {latest?.mediaPath && (
-                <div className="latest-video-wrap" onClick={() => onOpen(latest)}>
-                  <video className="latest-video" src={playSrc(latest)} poster={latest.posterPath} muted loop playsInline preload="metadata" />
-                  <span className="latest-video-play">▶</span>
-                </div>
-              )}
+
               {domains.length > 0 && (
                 <div className="dom-scatter">
                   {domains.slice(0, 8).map(({ domain, notes }, i) => {
