@@ -1007,8 +1007,7 @@ input { font-family: inherit; }
 .feedback-input:focus { border-color: rgba(255,255,255,0.25); }
 .feedback-input::placeholder { color: rgba(255,255,255,0.25); }
 .feedback-actions { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.4rem; }
-.feedback-email { font-family: var(--font-mono); font-size: 0.6rem; color: var(--muted); text-decoration: none; transition: color 0.15s; }
-.feedback-email:hover { color: #fff; }
+.feedback-status { font-family: var(--font-mono); font-size: 0.6rem; color: var(--green); }
 .feedback-thanks { font-size: 0.78rem; color: var(--green); padding: 0.5rem 0; }
 .person { background: rgba(255,255,255,0.04); border: 1px solid var(--glass-border); border-radius: 12px; padding: 0.7rem 0.8rem; transition: border-color 0.2s, background 0.2s; }
 .person:hover { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.18); }

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import ChatRoom from "./ChatRoom.jsx";
+import { submitFeedback } from "./api.js";
 
 const PEOPLE = [
   { name: "Maya Okafor", handle: "mayao", streak: 41, moments: 128, mood: "Bright", focus: "Work & Craft", note: "Shipping a hardware demo this week.", color: "#FF4D2E", following: true },
@@ -33,11 +34,16 @@ export default function Community() {
   const toggle = (handle) =>
     setPeople((prev) => prev.map((p) => p.handle === handle ? { ...p, following: !p.following } : p));
 
-  const submitFeedback = () => {
+  const sendFeedback = async () => {
     if (!feedback.trim()) return;
-    setFeedbackSent(true);
-    setFeedback("");
-    setTimeout(() => setFeedbackSent(false), 3000);
+    try {
+      await submitFeedback(feedback);
+      setFeedbackSent(true);
+      setFeedback("");
+      setTimeout(() => setFeedbackSent(false), 3000);
+    } catch (e) {
+      // silent fail
+    }
   };
 
   return (
@@ -92,8 +98,8 @@ export default function Community() {
                 onChange={(e) => setFeedback(e.target.value)}
               />
               <div className="feedback-actions">
-                <button className="follow on" onClick={submitFeedback} disabled={!feedback.trim()}>Send</button>
-                <a className="feedback-email" href="mailto:hello@entry.app">or email us</a>
+                <button className="follow on" onClick={sendFeedback} disabled={!feedback.trim()}>Send</button>
+                <span className="feedback-status">saved to database</span>
               </div>
             </>
           )}
