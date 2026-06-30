@@ -327,7 +327,7 @@ export default function App() {
       {/* persistent video background — present on home AND in the reader */}
       <div className={`bg ${bgMode}`}>
         {bgEntry ? (
-          <video ref={bgVidRef} key={bgEntry._id} className={`bg-vid ${vidReady ? "ready" : ""} ${inReader ? "contain" : ""}`} src={playSrc(bgEntry)} poster={bgEntry.posterPath}
+          <video ref={bgVidRef} key={bgEntry._id} className={`bg-vid ${vidReady ? "ready" : ""} ${inReader ? "reader-mode" : ""}`} src={playSrc(bgEntry)} poster={bgEntry.posterPath}
             autoPlay muted={!soundReady} loop={!inReader} playsInline preload="auto"
             onCanPlay={() => setVidReady(true)}
             onCanPlayThrough={() => { setVidReady(true); bootedRef.current = true; setLoadPhase("ready"); }}

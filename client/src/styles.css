@@ -31,7 +31,7 @@ input { font-family: inherit; }
   opacity: 0; transition: opacity 0.9s ease;
 }
 .bg-vid.ready, .bg-vid.fallback { opacity: 1; }
-.bg-vid.contain { object-fit: contain; }
+.bg-vid.reader-mode { object-fit: cover; transform: scale(1.3); }
 .bg.dim .bg-vid { filter: saturate(0) brightness(0.4) contrast(1.2); }
 /* gentle pulse shown over the dark bg while a freshly-switched clip buffers */
 .bg-loading {
