@@ -358,12 +358,18 @@ export default function App() {
                 </button>
               )}
               {domains.length > 0 && (
-                <div className="dom-text">
-                  {domains.map(({ domain, notes }) => (
-                    <button key={domain} className="dom-word" onClick={() => openDomain(domain, notes)}>
-                      {domain}<sup>{notes.length}</sup>
-                    </button>
-                  ))}
+                <div className="dom-grid">
+                  {domains.map(({ domain, notes }) => {
+                    const latest = notes[0];
+                    const status = latest?.status || "";
+                    return (
+                      <button key={domain} className="dom-card" onClick={() => openDomain(domain, notes)}>
+                        <span className="dom-count">{notes.length}</span>
+                        <span className="dom-name">{domain}</span>
+                        {status && <span className="dom-status">{status}</span>}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
 
