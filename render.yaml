@@ -33,4 +33,4 @@ services:
     staticPublishPath: dist
     envVars:
       - key: VITE_API_URL
-        value: https://visualspam-api.onrender.com
+        value: https://entry-app-0nts.onrender.com

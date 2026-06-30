@@ -32,6 +32,8 @@ const ALLOWED_ORIGINS = [
   "https://client-lilac-eight-25.vercel.app",
   "https://client-ctt75ud6h-surafelxs-projects.vercel.app",
   "https://entry-app-0nts.onrender.com",
+  "https://www.visualspam.et",
+  "https://visualspam.et",
 ];
 const io = new Server(server, {
   cors: {
