@@ -382,19 +382,15 @@ export default function App() {
               {domains.length > 0 && (
                 <div className="dom-scatter">
                   {domains.slice(0, 8).map(({ domain, notes }, i) => {
-                    const latest = notes[0];
-                    const status = latest?.status || "";
-                    const h = (domain.charCodeAt(0) * 7 + domain.charCodeAt(domain.length - 1) * 13) % 360;
-                    const rot = ((domain.charCodeAt(0) * 3 + i * 17) % 21) - 10;
-                    const x = ((domain.charCodeAt(0) * 11 + i * 37) % 60) - 30;
-                    const y = ((domain.charCodeAt(Math.min(1, domain.length - 1)) * 9 + i * 23) % 40) - 20;
+                    const rot = ((domain.charCodeAt(0) * 3 + i * 17) % 25) - 12;
+                    const x = ((domain.charCodeAt(0) * 11 + i * 43) % 160) - 80;
+                    const y = ((domain.charCodeAt(Math.min(1, domain.length - 1)) * 9 + i * 29) % 100) - 50;
                     return (
-                      <button key={domain} className="dom-float" style={{
+                      <button key={domain} className="dom-word" style={{
                         transform: `translate(${x}px, ${y}px) rotate(${rot}deg)`,
-                        animationDelay: `${i * 0.08}s`,
+                        animationDelay: `${i * 1.6}s`,
                       }} onClick={() => openDomain(domain, notes)}>
-                        <span className="dom-float-name">{domain}</span>
-                        <span className="dom-float-count">{notes.length}</span>
+                        {domain}<sup>{notes.length}</sup>
                       </button>
                     );
                   })}

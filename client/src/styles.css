@@ -1111,34 +1111,30 @@ input { font-family: inherit; }
 .dom-word sup { font-family: var(--font-mono); font-size: 0.65rem; color: var(--accent); margin-left: 0.12rem; top: -0.9em; }
 .dom-word:hover { color: #fff; transform: translateY(-2px) scale(1.04); text-shadow: 0 2px 16px rgba(0,0,0,0.9), 0 0 24px rgba(239,68,68,0.4); }
 
-/* domain cards — scattered */
+/* domain words — scattered text, no box, cycling highlight */
 .dom-scatter {
   position: relative; display: flex; flex-wrap: wrap; justify-content: center;
-  gap: 0.6rem; max-width: 400px; min-height: 80px; margin-top: 1rem;
+  align-items: center; gap: 1.2rem 2.5rem; max-width: 700px; min-height: 80px; margin-top: 0.5rem;
 }
-.dom-float {
-  display: flex; flex-direction: column; align-items: center; gap: 0.15rem;
-  background: rgba(255,255,255,0.06); backdrop-filter: blur(10px);
-  border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;
-  padding: 0.45rem 0.7rem 0.4rem; cursor: pointer; position: relative;
-  transition: all 0.2s ease; animation: floatIn 0.4s ease both;
+.dom-word {
+  font-family: var(--font-display); font-weight: 800; font-size: 1.5rem;
+  color: rgba(255,255,255,0.3); text-transform: lowercase; text-shadow: none;
+  transition: color 0.4s, text-shadow 0.4s, transform 0.2s; cursor: pointer;
+  animation: domainPulse 8s ease-in-out infinite; position: relative;
 }
-.dom-float:hover {
-  background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.4);
-  transform: translate(0, 0) rotate(0deg) scale(1.1) !important;
-  box-shadow: 0 4px 20px rgba(239,68,68,0.3);
+.dom-word sup {
+  font-family: var(--font-mono); font-size: 0.55rem; color: rgba(255,255,255,0.15);
+  margin-left: 0.1rem; top: -0.8em; transition: color 0.4s;
 }
-.dom-float-name {
-  font-family: var(--font-display); font-weight: 700; font-size: 0.72rem;
-  color: rgba(255,255,255,0.88); text-transform: lowercase; letter-spacing: -0.01em;
+.dom-word:hover {
+  color: #fff; text-shadow: 0 0 20px rgba(239,68,68,0.6), 0 0 40px rgba(239,68,68,0.3);
+  transform: scale(1.15) !important;
 }
-.dom-float-count {
-  font-family: var(--font-mono); font-size: 0.45rem; font-weight: 700;
-  color: var(--accent); background: rgba(239,68,68,0.12);
-  padding: 0.05rem 0.25rem; border-radius: 4px; line-height: 1;
-}
-@keyframes floatIn {
-  from { opacity: 0; transform: translateY(12px) scale(0.9); }
+.dom-word:hover sup { color: var(--accent); }
+@keyframes domainPulse {
+  0%,100% { color: rgba(255,255,255,0.2); text-shadow: none; }
+  4% { color: #fff; text-shadow: 0 0 24px rgba(239,68,68,0.7), 0 0 48px rgba(239,68,68,0.3); }
+  8% { color: rgba(255,255,255,0.2); text-shadow: none; }
 }
 
 /* music — fixed top-right corner */
