@@ -1492,6 +1492,6 @@ input { font-family: inherit; }
 
 /* ═══ extra per-entry facets (quotes / ideas / threads / emotions) ════════ */
 .r-emos span { color: #f0abfc !important; background: rgba(217,70,239,0.12) !important; border-color: rgba(217,70,239,0.25) !important; }
-.r-quote { font-style: italic; color: rgba(255,255,255,0.85); line-height: 1.5; border-left: 2px solid rgba(255,255,255,0.25); border-radius: 0; padding-left: 0.7rem; margin: 0.1rem 0; }
+.r-quote { font-style: italic; color: rgba(255,255,255,0.85); line-height: 1.5; border-radius: 0; padding-left: 0.7rem; margin: 0.1rem 0; }
 .r-idea { color: rgba(255,255,255,0.8); line-height: 1.45; margin: 0.1rem 0; }
 .r-follow { color: rgba(255,255,255,0.7); line-height: 1.45; font-style: italic; margin: 0.1rem 0; }
