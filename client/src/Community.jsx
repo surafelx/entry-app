@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { listFeedback, submitFeedback } from "./api.js";
 
 function timeAgo(date) {
@@ -20,6 +20,8 @@ export default function Community() {
   const [comments, setComments] = useState([]);
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(true);
+  const [posting, setPosting] = useState(false);
+  const inputRef = useRef(null);
 
   useEffect(() => {
     listFeedback()
@@ -29,26 +31,44 @@ export default function Community() {
   }, []);
 
   const post = async () => {
-    if (!text.trim()) return;
+    if (!text.trim() || posting) return;
+    setPosting(true);
     try {
       const item = await submitFeedback(text);
       setComments((prev) => [item, ...prev]);
       setText("");
+      inputRef.current?.focus();
     } catch (e) {}
+    setPosting(false);
+  };
+
+  const handleKey = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      post();
+    }
   };
 
   return (
     <div className="comment-board">
       <div className="comment-input-wrap">
-        <textarea
-          className="feedback-input"
-          placeholder="Leave a comment..."
-          rows={2}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && post()}
-        />
-        <button className="follow on" onClick={post} disabled={!text.trim()}>Post</button>
+        <div className="comment-input-box">
+          <textarea
+            ref={inputRef}
+            className="comment-input"
+            placeholder="Say something..."
+            rows={1}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={handleKey}
+          />
+          <button className={`comment-send ${text.trim() ? "active" : ""}`} onClick={post} disabled={!text.trim() || posting}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
+            </svg>
+          </button>
+        </div>
+        <span className="comment-hint">Enter to send · Shift+Enter for new line</span>
       </div>
 
       <div className="comment-list">
