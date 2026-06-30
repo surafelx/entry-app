@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { Analytics } from "@vercel/analytics/react";
 import { listEntries, getEntry, deleteEntry, listNotes, createNote } from "./api.js";
 import {
   WORKING, playSrc, thumbSrc, moodLabel, sentimentEmoji,
@@ -460,6 +461,7 @@ export default function App() {
       </div>
 
       {error && <div className="toast">{error}</div>}
+      <Analytics />
     </div>
   );
 }
