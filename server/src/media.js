@@ -262,6 +262,82 @@ export async function cartoonify(input, output, o = {}) {
   return (await stat(output)).size;
 }
 
+// 8. Glitch — VHS tracking errors, chromatic aberration, scan lines
+export async function glitch(input, output, o = {}) {
+  const { height = 480, fps = 24, crf = 28, preset = "fast" } = o;
+  await ff([
+    ...range(o),
+    "-i", input,
+    "-filter_complex",
+    `[0:v]fps=${fps},scale=-2:${height},` +
+      // chromatic aberration — split RGB and offset
+      `split[r][g][b];` +
+      `[r]colorchannelmixer=1:0:0:0:0:0:0:0:0:0:0:0:0:0:0[r];` +
+      `[g]colorchannelmixer=0:0:0:0:0:1:0:0:0:0:0:0:0:0:0[g];` +
+      `[b]colorchannelmixer=0:0:0:0:0:0:0:0:0:0:0:1:0:0:0[b];` +
+      `[r][g]blend=all_mode=addition:all_opacity=0.5[rg];` +
+      `[rg][b]blend=all_mode=addition:all_opacity=0.5[chromatic];` +
+      `[chromatic]eq=brightness=0.02:contrast=1.1:saturation=1.3,` +
+      // scan lines
+      `drawgrid=width=2:height=2:thickness=1:color=black@0.15,` +
+      // noise + slight shake
+      `noise=c0s=20:c0f=t+u,` +
+      `crop=in_w-4:in_h:2,` +
+      `eq=gamma=0.95[out]`,
+    "-map", "[out]", "-map", "0:a?",
+    "-c:v", "libx264", "-preset", preset, "-crf", String(crf), "-pix_fmt", "yuv420p",
+    "-c:a", "copy",
+    "-movflags", "+faststart",
+    output,
+  ]);
+  return (await stat(output)).size;
+}
+
+// 9. B&W — high-contrast black and white, film noir
+export async function bw(input, output, o = {}) {
+  const { height = 480, fps = 24, crf = 28, preset = "fast" } = o;
+  await ff([
+    ...range(o),
+    "-i", input,
+    "-vf",
+    `fps=${fps},scale=-2:${height},` +
+      `hue=s=0,` +
+      `eq=contrast=1.5:brightness=0.03:gamma=1.2,` +
+      `unsharp=5:5:1.5:5:5:0.8`,
+    "-c:v", "libx264", "-preset", preset, "-crf", String(crf), "-pix_fmt", "yuv420p",
+    "-an",
+    "-movflags", "+faststart",
+    output,
+  ]);
+  return (await stat(output)).size;
+}
+
+// 10. VHS — warm degradation, tracking lines, colour bleed
+export async function vhs(input, output, o = {}) {
+  const { height = 480, fps = 24, crf = 30, preset = "fast" } = o;
+  await ff([
+    ...range(o),
+    "-i", input,
+    "-filter_complex",
+    `[0:v]fps=${fps},scale=-2:${height},` +
+      // warm colour shift + desaturate slightly
+      `eq=saturation=0.7:contrast=1.15:brightness=0.04:gamma=1.05,` +
+      `colorbalance=rs=0.2:gs=0.08:bs=-0.1:rm=0.15:gm=0.05:bm=-0.08,` +
+      `hue=h=5:s=0.9,` +
+      // tracking noise
+      `noise=c0s=15:c0f=t+u,` +
+      // soft glow
+      `unsharp=3:3:2:3:3:1,` +
+      `vignette=PI/3:0.4[out]`,
+    "-map", "[out]", "-map", "0:a?",
+    "-c:v", "libx264", "-preset", preset, "-crf", String(crf), "-pix_fmt", "yuv420p",
+    "-c:a", "copy",
+    "-movflags", "+faststart",
+    output,
+  ]);
+  return (await stat(output)).size;
+}
+
 // Retro vintage comic — warm sepia tones, halftone grain, faded blacks, paper texture
 export async function cartoonifyRetro(input, output, o = {}) {
   const {

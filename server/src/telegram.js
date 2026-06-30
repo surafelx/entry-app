@@ -1,7 +1,8 @@
 // Telegram bot — receives video/audio messages and creates diary entries.
 //
 // Usage: send any video, round video, voice note, or video note to the bot.
-// It downloads the file, uploads to Cloudinary, creates an entry, and kicks off the pipeline.
+// It downloads the file, asks which effects to apply, processes, and sends
+// step-by-step notifications with the final analysis.
 
 import { Bot } from "grammy";
 import fs from "node:fs";
@@ -35,6 +36,31 @@ function mediaFilename(originalName, mime) {
   return `${Date.now()}-${randomUUID().slice(0, 8)}${ext}`;
 }
 
+const EFFECT_KEYBOARD = {
+  inline_keyboard: [
+    [
+      { text: "dither", callback_data: "fx:dither" },
+      { text: "retro", callback_data: "fx:retro" },
+      { text: "pixel", callback_data: "fx:pixel" },
+    ],
+    [
+      { text: "cartoon", callback_data: "fx:cartoon" },
+      { text: "glitch", callback_data: "fx:glitch" },
+      { text: "vhs", callback_data: "fx:vhs" },
+    ],
+    [
+      { text: "bw", callback_data: "fx:bw" },
+      { text: "dither+retro", callback_data: "fx:dither,retro" },
+      { text: "skip", callback_data: "fx:none" },
+    ],
+  ],
+};
+
+function effectLabel(effects) {
+  if (!effects?.length) return "none";
+  return effects.join(" + ");
+}
+
 async function ingestFile(ctx, file, title) {
   const userId = ctx.from?.id;
   log("ingest", `user=${userId} file_id=${file.file_id} size=${file.file_size || "?"}`);
@@ -51,7 +77,6 @@ async function ingestFile(ctx, file, title) {
   fs.writeFileSync(destPath, buf);
   log("ingest", `saved ${buf.length} bytes → ${filename}`);
 
-  // Use local path — Cloudinary upload happens after processing completes
   const mediaPath = `/media/${filename}`;
 
   const entry = await Entry.create({
@@ -63,8 +88,15 @@ async function ingestFile(ctx, file, title) {
   });
   log("ingest", `created entry ${entry._id}`);
 
-  runPipeline(entry._id, "", []);
   return entry;
+}
+
+function sendWithEffects(ctx, entry, effects) {
+  const chatId = ctx.chat.id;
+  const notify = (msg) => {
+    ctx.api.sendMessage(chatId, msg).catch(() => {});
+  };
+  runPipeline(entry._id, "", [], { notify, effects });
 }
 
 export function startBot() {
@@ -74,6 +106,9 @@ export function startBot() {
   }
 
   const bot = new Bot(BOT_TOKEN);
+
+  // Store pending entries awaiting effect selection
+  const pending = new Map(); // chatId → { entry, msgId }
 
   bot.command("start", (ctx) =>
     ctx.reply(
@@ -87,7 +122,7 @@ export function startBot() {
 
   bot.command("help", (ctx) =>
     ctx.reply(
-      "send a video → i download it, transcribe it, analyze it with AI, and generate a cartoonified version.\n\n" +
+      "send a video → i download it, ask which effects to apply, transcribe, analyze with AI, and send you the insights.\n\n" +
       "caption = title\n" +
       "/status = recent entries"
     )
@@ -116,96 +151,57 @@ export function startBot() {
     ctx.reply(lines.join("\n"));
   });
 
-  bot.on("message:video", async (ctx) => {
-    const file = ctx.message.video;
-    const title = ctx.message.caption || null;
-    await ctx.reply("downloading video...");
+  // Handle effect selection callbacks
+  bot.on("callback_query:data", async (ctx) => {
+    const data = ctx.callbackQuery.data;
+    if (!data.startsWith("fx:")) return;
+
+    await ctx.answerCallbackQuery();
+
+    const effects = data === "fx:none" ? [] : data.replace("fx:", "").split(",");
+    const key = ctx.chat.id;
+    const p = pending.get(key);
+    if (!p) {
+      await ctx.editMessageText(`effects: ${effectLabel(effects)}\nprocessing...`);
+      return;
+    }
+
+    pending.delete(key);
+
+    await ctx.editMessageText(`effects: ${effectLabel(effects)}\nprocessing...`);
+
+    const notify = (msg) => {
+      ctx.api.sendMessage(ctx.chat.id, msg).catch(() => {});
+    };
+
+    runPipeline(p.entry._id, "", [], { notify, effects });
+  });
+
+  async function handleMedia(ctx, file, title, sourceLabel) {
+    await ctx.reply(`downloading ${sourceLabel}...`);
     try {
       const entry = await ingestFile(ctx, file, title);
-      await ctx.reply(
-        `entry created: ${entry.title || "(untitled)"}\nstatus: processing\n\n` +
-        "i'll transcribe, analyze, and cartoonify it. use /status to check progress."
+      const msg = await ctx.reply(
+        `downloaded: ${entry.title || "(untitled)"}\n\npick effects to apply:`,
+        { reply_markup: EFFECT_KEYBOARD }
       );
+      pending.set(ctx.chat.id, { entry, msgId: msg.message_id });
     } catch (e) {
-      log("error", "video handler failed:", e.message);
+      log("error", `${sourceLabel} handler failed:`, e.message);
       await ctx.reply(`error: ${e.message}`);
     }
+  }
+
+  bot.on("message:video", async (ctx) => {
+    await handleMedia(ctx, ctx.message.video, ctx.message.caption || null, "video");
   });
 
   bot.on("message:video_note", async (ctx) => {
-    const file = ctx.message.video_note;
-    const title = ctx.message.caption || null;
-    await ctx.reply("downloading video note...");
-    try {
-      const tgFile = await ctx.api.getFile(file.file_id);
-      const filename = mediaFilename(null, "video/mp4");
-      const destPath = path.join(MEDIA_DIR, filename);
-
-      const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${tgFile.file_path}`;
-      const res = await fetch(fileUrl);
-      if (!res.ok) throw new Error(`Telegram download failed: ${res.status}`);
-
-      const buf = Buffer.from(await res.arrayBuffer());
-      fs.writeFileSync(destPath, buf);
-
-      const mediaPath = `/media/${filename}`;
-
-      const entry = await Entry.create({
-        recordedAt: new Date(),
-        source: "upload",
-        title: title || "video note",
-        mediaPath,
-        status: "ingested",
-      });
-
-      runPipeline(entry._id, "", []);
-
-      await ctx.reply(
-        `entry created: ${entry.title}\nstatus: processing\n\n` +
-        "use /status to check progress."
-      );
-    } catch (e) {
-      log("error", "video_note handler failed:", e.message);
-      await ctx.reply(`error: ${e.message}`);
-    }
+    await handleMedia(ctx, ctx.message.video_note, ctx.message.caption || null, "video note");
   });
 
   bot.on("message:voice", async (ctx) => {
-    const file = ctx.message.voice;
-    const title = ctx.message.caption || null;
-    await ctx.reply("downloading voice note...");
-    try {
-      const tgFile = await ctx.api.getFile(file.file_id);
-      const filename = mediaFilename(null, file.mime_type || "audio/ogg");
-      const destPath = path.join(MEDIA_DIR, filename);
-
-      const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${tgFile.file_path}`;
-      const res = await fetch(fileUrl);
-      if (!res.ok) throw new Error(`Telegram download failed: ${res.status}`);
-
-      const buf = Buffer.from(await res.arrayBuffer());
-      fs.writeFileSync(destPath, buf);
-
-      const mediaPath = `/media/${filename}`;
-
-      const entry = await Entry.create({
-        recordedAt: new Date(),
-        source: "upload",
-        title: title || "voice note",
-        mediaPath,
-        status: "ingested",
-      });
-
-      runPipeline(entry._id, "", []);
-
-      await ctx.reply(
-        `entry created: ${entry.title}\nstatus: processing\n\n` +
-        "use /status to check progress."
-      );
-    } catch (e) {
-      log("error", "voice handler failed:", e.message);
-      await ctx.reply(`error: ${e.message}`);
-    }
+    await handleMedia(ctx, ctx.message.voice, ctx.message.caption || null, "voice note");
   });
 
   bot.on("message:document", async (ctx) => {
@@ -215,18 +211,7 @@ export function startBot() {
     if (!isVideo && !isAudio) {
       return ctx.reply("send a video or voice note, not a document.");
     }
-    const title = ctx.message.caption || null;
-    await ctx.reply(`downloading ${file.mime_type}...`);
-    try {
-      const entry = await ingestFile(ctx, file, title);
-      await ctx.reply(
-        `entry created: ${entry.title || "(untitled)"}\nstatus: processing\n\n` +
-        "use /status to check progress."
-      );
-    } catch (e) {
-      log("error", "document handler failed:", e.message);
-      await ctx.reply(`error: ${e.message}`);
-    }
+    await handleMedia(ctx, file, ctx.message.caption || null, file.mime_type);
   });
 
   bot.catch((err) => { log("error", "bot error:", err.message); });

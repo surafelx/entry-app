@@ -25,7 +25,11 @@ const entrySchema = new Schema(
     cartoonPath: { type: String }, // cartoonified h264 mp4 (saturated + edge outlines)
     retroPath: { type: String }, // retro vintage cartoon effect
     audioPath: { type: String }, // extracted mono mp3 — the lightweight artifact
-    ditherPath: { type: String }, // pixel/dithered GIF preview
+    ditherPath: { type: String }, // pixel/dithered animated webp preview
+    pixelPath: { type: String }, // pixel art video
+    glitchPath: { type: String }, // VHS glitch effect
+    bwPath: { type: String }, // high-contrast black and white
+    vhsPath: { type: String }, // warm VHS degradation
     durationSec: { type: Number },
   },
   { timestamps: { createdAt: true, updatedAt: false } }

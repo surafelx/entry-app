@@ -7,6 +7,7 @@ import Segment from "./models/Segment.js";
 import { analyzeTranscript } from "./analyze.js";
 import {
   ffmpegAvailable, compress, extractAudio, pixelDither, cartoonifyRetro,
+  cartoonify, pixelArt, glitch, bw, vhs,
   extractFrames, extractPoster, getDuration, probe,
 } from "./media.js";
 import { whisperAvailable, transcribe } from "./transcribe.js";
@@ -38,7 +39,7 @@ async function resolveInput(mediaPath) {
 }
 
 // ── Step 1: Process everything locally (no Cloudinary) ──────────────────────
-async function processLocally(entry) {
+async function processLocally(entry, opts = {}) {
   const src = await resolveInput(entry.mediaPath);
   if (!src) return {};
 
@@ -71,9 +72,11 @@ async function processLocally(entry) {
   if (compResult.status === "fulfilled") artifacts.compressedPath = `/media/${base}.min.mp4`;
   if (audioResult.status === "fulfilled") artifacts.audioPath = `/media/${base}.audio.mp3`;
 
-  // Decorative — random pick 1-2
-  const effects = ["dither", "retro"];
-  const picked = effects.sort(() => Math.random() - 0.5).slice(0, 1 + Math.floor(Math.random() * 2));
+  // Decorative — user-selected or random pick 1-2
+  const allEffects = ["dither", "retro", "pixel", "cartoon", "glitch", "bw", "vhs"];
+  const picked = opts.effects?.length
+    ? opts.effects.filter(e => allEffects.includes(e))
+    : allEffects.sort(() => Math.random() - 0.5).slice(0, 1 + Math.floor(Math.random() * 2));
   log("local", `picked effects: ${picked.join(", ")}`);
 
   if (picked.includes("dither")) {
@@ -96,6 +99,51 @@ async function processLocally(entry) {
     } catch (e) { logErr("local", "retro failed:", e.message); }
   }
 
+  if (picked.includes("pixel")) {
+    try {
+      const pixelOut = path.join(MEDIA_DIR, `${base}.pixel.mp4`);
+      await pixelArt(src.input, pixelOut, { blocks: 96, up: 480, fps: 15, crf: 30 });
+      artifacts.pixelPath = `/media/${base}.pixel.mp4`;
+      log("local", `pixel → ${base}.pixel.mp4`);
+    } catch (e) { logErr("local", "pixel failed:", e.message); }
+  }
+
+  if (picked.includes("cartoon")) {
+    try {
+      const cartoonOut = path.join(MEDIA_DIR, `${base}.cartoon.mp4`);
+      await cartoonify(src.input, cartoonOut, { height: 480, fps: 24, crf: 30, preset: "fast" });
+      artifacts.cartoonPath = `/media/${base}.cartoon.mp4`;
+      log("local", `cartoon → ${base}.cartoon.mp4`);
+    } catch (e) { logErr("local", "cartoon failed:", e.message); }
+  }
+
+  if (picked.includes("glitch")) {
+    try {
+      const glitchOut = path.join(MEDIA_DIR, `${base}.glitch.mp4`);
+      await glitch(src.input, glitchOut, { height: 480, fps: 24, crf: 28, preset: "fast" });
+      artifacts.glitchPath = `/media/${base}.glitch.mp4`;
+      log("local", `glitch → ${base}.glitch.mp4`);
+    } catch (e) { logErr("local", "glitch failed:", e.message); }
+  }
+
+  if (picked.includes("bw")) {
+    try {
+      const bwOut = path.join(MEDIA_DIR, `${base}.bw.mp4`);
+      await bw(src.input, bwOut, { height: 480, fps: 24, crf: 28, preset: "fast" });
+      artifacts.bwPath = `/media/${base}.bw.mp4`;
+      log("local", `bw → ${base}.bw.mp4`);
+    } catch (e) { logErr("local", "bw failed:", e.message); }
+  }
+
+  if (picked.includes("vhs")) {
+    try {
+      const vhsOut = path.join(MEDIA_DIR, `${base}.vhs.mp4`);
+      await vhs(src.input, vhsOut, { height: 480, fps: 24, crf: 30, preset: "fast" });
+      artifacts.vhsPath = `/media/${base}.vhs.mp4`;
+      log("local", `vhs → ${base}.vhs.mp4`);
+    } catch (e) { logErr("local", "vhs failed:", e.message); }
+  }
+
   return artifacts;
 }
 
@@ -112,6 +160,11 @@ async function uploadAll(entry, artifacts) {
     audioPath: { ext: ".audio.mp3", type: "video" },
     ditherPath: { ext: ".dither.webp", type: "video" },
     retroPath: { ext: ".retro.mp4", type: "video" },
+    pixelPath: { ext: ".pixel.mp4", type: "video" },
+    cartoonPath: { ext: ".cartoon.mp4", type: "video" },
+    glitchPath: { ext: ".glitch.mp4", type: "video" },
+    bwPath: { ext: ".bw.mp4", type: "video" },
+    vhsPath: { ext: ".vhs.mp4", type: "video" },
   };
 
   for (const [field, { ext, type }] of Object.entries(fieldMap)) {
@@ -132,8 +185,10 @@ async function uploadAll(entry, artifacts) {
 }
 
 // ── Main pipeline ───────────────────────────────────────────────────────────
-export async function runPipeline(entryId, transcriptText, clientFrames = []) {
+export async function runPipeline(entryId, transcriptText, clientFrames = [], opts = {}) {
+  const { notify, effects } = opts;
   const t0 = Date.now();
+  const send = (msg) => { try { notify?.(msg); } catch {} };
   try {
     const entry = await Entry.findById(entryId);
     if (!entry) { logErr("main", `entry ${entryId} not found`); return; }
@@ -144,7 +199,8 @@ export async function runPipeline(entryId, transcriptText, clientFrames = []) {
     let segments = [];
 
     // ── Step 1: Process locally ──
-    const artifacts = await processLocally(entry);
+    send("processing video...");
+    const artifacts = await processLocally(entry, { effects });
     if (artifacts.durationSec) {
       await Entry.findByIdAndUpdate(entryId, { durationSec: artifacts.durationSec });
       entry.durationSec = artifacts.durationSec;
@@ -152,6 +208,7 @@ export async function runPipeline(entryId, transcriptText, clientFrames = []) {
 
     // ── Step 2: Transcribe + extract frames (parallel) ──
     await Entry.findByIdAndUpdate(entryId, { status: "transcribing" });
+    send("transcribing...");
     const src = await resolveInput(entry.mediaPath);
 
     const whisperTask = (async () => {
@@ -194,6 +251,7 @@ export async function runPipeline(entryId, transcriptText, clientFrames = []) {
 
     // ── Step 3: AI Analysis ──
     await Entry.findByIdAndUpdate(entryId, { status: "analyzing" });
+    send("analyzing with AI...");
     log("analyze", "sending to OpenRouter...");
 
     const a = await analyzeTranscript(text, {
@@ -226,6 +284,7 @@ export async function runPipeline(entryId, transcriptText, clientFrames = []) {
     log("analyze", `saved analysis (sentiment=${a.sentiment}, ${a.topics?.length || 0} topics)`);
 
     // ── Step 4: Upload everything to Cloudinary ──
+    send("uploading to cloud...");
     const freshEntry = await Entry.findById(entryId);
     const updates = await uploadAll(freshEntry, artifacts);
     if (Object.keys(updates).length) {
@@ -236,6 +295,16 @@ export async function runPipeline(entryId, transcriptText, clientFrames = []) {
     // ── Step 5: Mark ready (after upload so DB never has stale local paths) ──
     await Entry.findByIdAndUpdate(entryId, { status: "ready" });
     log("main", `✓ entry ready ${entryId} in ${Date.now() - t0}ms`);
+
+    // ── Step 6: Send analysis summary back ──
+    const mood = a.sentiment > 0.25 ? "😊" : a.sentiment < -0.25 ? "😔" : "😐";
+    const summary = [
+      `${mood} ${entry.title || "Untitled"}`,
+      a.standing || a.summary || "",
+      a.topics?.length ? `topics: ${a.topics.slice(0, 5).join(", ")}` : "",
+      `duration: ${artifacts.durationSec || "?"}s`,
+    ].filter(Boolean).join("\n");
+    send(summary || "done!");
 
     log("main", `✓ pipeline complete for ${entryId} in ${Date.now() - t0}ms`);
   } catch (err) {
