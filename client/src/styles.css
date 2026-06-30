@@ -1299,7 +1299,7 @@ input { font-family: inherit; }
   transition: background 0.15s, color 0.15s;
 }
 .log-line:hover { background: rgba(255,255,255,0.06); color: #fff; }
-.log-line.on { background: rgba(239,68,68,0.14); color: #fff; box-shadow: inset 2px 0 0 var(--accent); }
+.log-line.on { background: rgba(239,68,68,0.14); color: #fff; }
 .log-time { flex: none; font-family: var(--font-mono); font-size: 0.64rem; color: var(--accent); min-width: 2.6em; }
 .log-text { flex: 1; }
 
