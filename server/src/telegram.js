@@ -4,17 +4,19 @@
 // It downloads the file, asks which effects to apply, processes, and sends
 // step-by-step notifications with the final analysis.
 
-import { Bot } from "grammy";
+import { Bot, InputFile } from "grammy";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import Entry from "./models/Entry.js";
 import { MEDIA_DIR } from "./index.js";
 import { runPipeline } from "./pipeline.js";
+import { uploadMedia } from "./cloudinary.js";
 
 const log = (tag, ...a) => console.log(`[tg:${tag}]`, ...a);
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const CHANNEL_ID = process.env.TELEGRAM_CHANNEL_ID;
 
 const VIDEO_TYPES = [
   "video/mp4", "video/webm", "video/quicktime", "video/x-msvideo",
@@ -91,12 +93,47 @@ async function ingestFile(ctx, file, title) {
   return entry;
 }
 
-function sendWithEffects(ctx, entry, effects) {
+function sendWithEffects(bot, ctx, entry, effects) {
   const chatId = ctx.chat.id;
   const notify = (msg) => {
     ctx.api.sendMessage(chatId, msg).catch(() => {});
   };
-  runPipeline(entry._id, "", [], { notify, effects });
+  const onComplete = async (entryId) => {
+    if (!CHANNEL_ID) return;
+    try {
+      const full = await Entry.findById(entryId).populate("analysis").lean({ virtuals: true });
+      if (!full || !full.analysis) return;
+      const a = full.analysis;
+      const mood = a.sentiment > 0.25 ? "😊" : a.sentiment < -0.25 ? "😔" : "😐";
+      const lines = [
+        `${mood} ${full.title || "Untitled"}`,
+        "",
+        a.standing || a.summary || "",
+        a.topics?.length ? `#${a.topics.slice(0, 4).join(" #")}` : "",
+        a.growth ? `growth: ${a.growth}` : "",
+      ].filter(Boolean);
+      const caption = lines.join("\n");
+
+      // Pick best video: compressed is smallest, effects are decorative
+      const videoUrl = full.compressedPath || full.mediaPath;
+      if (!videoUrl) return;
+
+      // Download video to temp, then send
+      const res = await fetch(videoUrl);
+      if (!res.ok) return;
+      const buf = Buffer.from(await res.arrayBuffer());
+      const tmpFile = `/tmp/channel_${entryId}.mp4`;
+      const fs = await import("node:fs/promises");
+      await fs.writeFile(tmpFile, buf);
+
+      await bot.api.sendVideo(CHANNEL_ID, new InputFile(tmpFile), { caption });
+      await fs.unlink(tmpFile).catch(() => {});
+      log("channel", `posted ${entryId} to ${CHANNEL_ID}`);
+    } catch (e) {
+      logErr("channel", "post failed:", e.message);
+    }
+  };
+  runPipeline(entry._id, "", [], { notify, effects, onComplete });
 }
 
 export function startBot() {
@@ -170,11 +207,7 @@ export function startBot() {
 
     await ctx.editMessageText(`effects: ${effectLabel(effects)}\nprocessing...`);
 
-    const notify = (msg) => {
-      ctx.api.sendMessage(ctx.chat.id, msg).catch(() => {});
-    };
-
-    runPipeline(p.entry._id, "", [], { notify, effects });
+    sendWithEffects(bot, ctx, p.entry, effects);
   });
 
   async function handleMedia(ctx, file, title, sourceLabel) {

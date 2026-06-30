@@ -186,7 +186,7 @@ async function uploadAll(entry, artifacts) {
 
 // ── Main pipeline ───────────────────────────────────────────────────────────
 export async function runPipeline(entryId, transcriptText, clientFrames = [], opts = {}) {
-  const { notify, effects } = opts;
+  const { notify, effects, onComplete } = opts;
   const t0 = Date.now();
   const send = (msg) => { try { notify?.(msg); } catch {} };
   try {
@@ -305,6 +305,9 @@ export async function runPipeline(entryId, transcriptText, clientFrames = [], op
       `duration: ${artifacts.durationSec || "?"}s`,
     ].filter(Boolean).join("\n");
     send(summary || "done!");
+
+    // ── Step 7: Post to channel ──
+    try { onComplete?.(entryId); } catch {}
 
     log("main", `✓ pipeline complete for ${entryId} in ${Date.now() - t0}ms`);
   } catch (err) {
