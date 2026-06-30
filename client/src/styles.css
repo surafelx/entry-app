@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600;700;800;900&family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap");
 
 :root {
   --ink: #fff;
@@ -10,7 +10,7 @@
   --glass-border: rgba(255,255,255,0.1);
   --glass-hover: rgba(255,255,255,0.12);
   --radius: 12px;
-  --font-display: "Unbounded", sans-serif;
+  --font-display: "Syne", sans-serif;
   --font-body: "Space Grotesk", system-ui, sans-serif;
   --font-mono: "Space Mono", monospace;
 }
@@ -20,6 +20,8 @@ body { margin: 0; background: #09090b; font-family: var(--font-body); color: var
 h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.03em; }
 button { cursor: pointer; font-family: inherit; border: none; background: none; color: inherit; }
 input { font-family: inherit; }
+.gradient-text { background: linear-gradient(135deg, var(--accent), #ff8a4c, var(--blue)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+.glow-text { text-shadow: 0 0 20px rgba(239,68,68,0.4), 0 0 40px rgba(239,68,68,0.15); }
 
 /* ═══════════════════════════════════════════════════════════════════════ */
 /*  VIDEO BACKGROUND                                                       */
@@ -1281,6 +1283,7 @@ input { font-family: inherit; }
 }
 .r-sec.focus {
   background: rgba(239,68,68,0.12);
+  border: none !important;
   padding: 0.5rem 0.7rem; border-radius: 0 8px 8px 0;
   box-shadow: 0 6px 22px rgba(0,0,0,0.4);
 }
