@@ -152,11 +152,24 @@ export default function App() {
   }
   useEffect(() => { refresh(); }, []);
   // Safety net: never get stuck on "pulling in video..." if buffering stalls.
+  // Generous window so a fresh/large clip has time to actually buffer before we
+  // reveal it (avoids flashing an un-loaded black video).
   useEffect(() => {
     if (loadPhase !== "loading-video") return;
-    const t = setTimeout(() => { bootedRef.current = true; setLoadPhase("ready"); }, 9000);
+    const t = setTimeout(() => { bootedRef.current = true; setLoadPhase("ready"); }, 18000);
     return () => clearTimeout(t);
   }, [loadPhase]);
+  // Whenever the background switches to a different clip (entering a domain or
+  // the reader), treat it as not-ready so it can buffer and fade in cleanly
+  // rather than popping in mid-load. Fallback: if a clip can't buffer within a
+  // few seconds (slow network or unreachable src), reveal it anyway so we never
+  // get stuck on an invisible background.
+  useEffect(() => {
+    setVidReady(false);
+    if (!bgEntry?._id) return;
+    const t = setTimeout(() => setVidReady(true), 6000);
+    return () => clearTimeout(t);
+  }, [bgEntry?._id]);
   const statusesKey = entries.map((e) => e.status).join(",");
   useEffect(() => {
     const w = entries.some((e) => WORKING.includes(e.status));
@@ -314,12 +327,15 @@ export default function App() {
       {/* persistent video background — present on home AND in the reader */}
       <div className={`bg ${bgMode}`}>
         {bgEntry ? (
-          <video ref={bgVidRef} key={bgEntry._id} className="bg-vid" src={playSrc(bgEntry)} poster={bgEntry.posterPath}
+          <video ref={bgVidRef} key={bgEntry._id} className={`bg-vid ${vidReady ? "ready" : ""} ${inReader ? "contain" : ""}`} src={playSrc(bgEntry)} poster={bgEntry.posterPath}
             autoPlay muted={!soundReady} loop={!inReader} playsInline preload="auto"
+            onCanPlay={() => setVidReady(true)}
             onCanPlayThrough={() => { setVidReady(true); bootedRef.current = true; setLoadPhase("ready"); }}
             onPause={(e) => { if (!document.hidden) e.currentTarget.play().catch(() => {}); }}
             onEnded={() => { if (!inReader) setVi((i) => (i + 1) % Math.max(1, playable.length)); }} />
         ) : <div className="bg-vid fallback" />}
+        {/* subtle buffering hint while a freshly-switched clip loads */}
+        {bgEntry && !vidReady && bgMode !== "off" && <div className="bg-loading" />}
         {/* Dithering canvas overlay */}
         <canvas ref={(c) => { if (c && !c._drawn) { c._drawn = true; drawDitherCanvas(c); } }} className="dither-canvas" width={320} height={180} />
         {bgMode === "dim" && <div className="bg-overlay" />}

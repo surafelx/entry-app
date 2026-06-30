@@ -1,5 +1,5 @@
 // Shared formatting + aggregation helpers used across views.
-const API_BASE = "https://143b-196-188-242-241.ngrok-free.app";
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
 export const STATUS = {
   ingested: { c: "#6B6862", label: "Ingested" },
