@@ -1118,9 +1118,10 @@ input { font-family: inherit; }
 }
 .dom-word {
   font-family: var(--font-display); font-weight: 800; font-size: 1.5rem;
-  color: rgba(255,255,255,0.3); text-transform: lowercase; text-shadow: none;
+  color: rgba(255,255,255,0.2); text-transform: lowercase; text-shadow: none;
   transition: color 0.4s, text-shadow 0.4s, transform 0.2s; cursor: pointer;
-  animation: domainPulse 12s ease-in-out infinite; position: relative;
+  animation: domainPulse var(--cycle, 16s) ease-in-out infinite;
+  animation-delay: var(--d, 0s); position: relative;
 }
 .dom-word sup {
   font-family: var(--font-mono); font-size: 0.55rem; color: rgba(255,255,255,0.15);
@@ -1132,9 +1133,8 @@ input { font-family: inherit; }
 }
 .dom-word:hover sup { color: var(--accent); }
 @keyframes domainPulse {
-  0%,100% { color: rgba(255,255,255,0.2); text-shadow: none; }
-  6% { color: #fff; text-shadow: 0 0 24px rgba(239,68,68,0.7), 0 0 48px rgba(239,68,68,0.3); }
-  12% { color: rgba(255,255,255,0.2); text-shadow: none; }
+  0%,6%,100% { color: rgba(255,255,255,0.2); text-shadow: none; }
+  3% { color: #fff; text-shadow: 0 0 24px rgba(239,68,68,0.7), 0 0 48px rgba(239,68,68,0.3); }
 }
 
 /* music — fixed top-right corner */
