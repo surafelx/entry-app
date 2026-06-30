@@ -798,10 +798,10 @@ input { font-family: inherit; }
   .dom-word { font-size: 0.7rem; font-weight: 700; }
   .dom-text { gap: 0.3rem 0.7rem; }
   .dom-word sup { font-size: 0.45rem; top: -0.7em; }
-  .dom-card { padding: 0.4rem 0.55rem 0.35rem; min-width: 64px; }
-  .dom-name { font-size: 0.58rem; }
-  .dom-status { font-size: 0.42rem; }
-  .dom-count { font-size: 0.48rem; }
+  .dom-card { padding: 0.3rem 0.45rem 0.25rem; min-width: 52px; border-radius: 6px; }
+  .dom-name { font-size: 0.5rem; }
+  .dom-status { font-size: 0.38rem; }
+  .dom-count { font-size: 0.42rem; top: -0.25rem; right: -0.15rem; }
   .v-home { gap: 0.7rem; }
   .home { padding: 1rem; }
   /* nav dock */
@@ -1111,27 +1111,27 @@ input { font-family: inherit; }
 .dom-word:hover { color: #fff; transform: translateY(-2px) scale(1.04); text-shadow: 0 2px 16px rgba(0,0,0,0.9), 0 0 24px rgba(239,68,68,0.4); }
 
 /* domain cards */
-.dom-grid { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; max-width: 520px; }
+.dom-grid { display: flex; flex-wrap: wrap; gap: 0.4rem; justify-content: center; max-width: 480px; }
 .dom-card {
-  display: flex; flex-direction: column; align-items: center; gap: 0.15rem;
-  background: var(--glass); border: 1px solid var(--glass-border); border-radius: 10px;
-  padding: 0.55rem 0.8rem 0.45rem; min-width: 80px; position: relative;
+  display: flex; flex-direction: column; align-items: center; gap: 0.1rem;
+  background: var(--glass); border: 1px solid var(--glass-border); border-radius: 8px;
+  padding: 0.4rem 0.6rem 0.35rem; min-width: 60px; position: relative;
   transition: background 0.15s, transform 0.15s, border-color 0.2s;
 }
 .dom-card:hover { background: var(--glass-hover); transform: translateY(-2px); border-color: rgba(239,68,68,0.25); }
 .dom-count {
-  font-family: var(--font-mono); font-size: 0.55rem; font-weight: 700;
+  font-family: var(--font-mono); font-size: 0.48rem; font-weight: 700;
   color: var(--accent); background: rgba(239,68,68,0.1);
-  padding: 0.1rem 0.35rem; border-radius: 6px; line-height: 1;
-  position: absolute; top: -0.35rem; right: -0.25rem;
+  padding: 0.08rem 0.3rem; border-radius: 6px; line-height: 1;
+  position: absolute; top: -0.3rem; right: -0.2rem;
 }
 .dom-name {
-  font-family: var(--font-display); font-weight: 700; font-size: 0.68rem;
+  font-family: var(--font-display); font-weight: 700; font-size: 0.6rem;
   color: rgba(255,255,255,0.88); text-transform: lowercase;
   letter-spacing: -0.01em; line-height: 1.2;
 }
 .dom-status {
-  font-family: var(--font-mono); font-size: 0.48rem; text-transform: uppercase;
+  font-family: var(--font-mono); font-size: 0.42rem; text-transform: uppercase;
   letter-spacing: 0.06em; color: var(--muted); line-height: 1;
 }
 
