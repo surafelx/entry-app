@@ -119,17 +119,6 @@ async function uploadAll(entry, artifacts) {
     }
   }
 
-  // Upload raw video last
-  if (entry.mediaPath?.startsWith("/media/")) {
-    const localPath = path.join(MEDIA_DIR, path.basename(entry.mediaPath));
-    if (fs.existsSync(localPath)) {
-      try {
-        updates.mediaPath = await uploadMedia(localPath, base);
-        log("upload", `raw → Cloudinary`);
-      } catch (e) { logErr("upload", "raw failed:", e.message); }
-    }
-  }
-
   return updates;
 }
 
