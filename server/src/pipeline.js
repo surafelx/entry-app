@@ -11,175 +11,126 @@ import {
 } from "./media.js";
 import { whisperAvailable, transcribe } from "./transcribe.js";
 import { MEDIA_DIR } from "./index.js";
-import { uploadMedia, uploadImage, tmpPath, writeTmp, cleanupTmp } from "./cloudinary.js";
+import { uploadMedia, uploadImage, tmpPath, cleanupTmp } from "./cloudinary.js";
 
 const log = (tag, ...args) => console.log(`[pipeline:${tag}]`, ...args);
 const logErr = (tag, ...args) => console.error(`[pipeline:${tag}]`, ...args);
 
-// Download a file from a URL to a local path
-async function download(url, localPath) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`download failed: ${res.status}`);
-  const buf = Buffer.from(await res.arrayBuffer());
-  fs.writeFileSync(localPath, buf);
-  return localPath;
-}
-
-// Derive a Cloudinary public_id from a URL or filename
-function pubIdFromUrl(url) {
-  // e.g. https://res.cloudinary.com/.../visualspam/abc123.min.mp4 → abc123
-  const parts = url.split("/");
-  const file = parts[parts.length - 1];
-  return file.replace(/\.[^.]+$/, "");
-}
-
-function pubIdFromFilename(filename) {
-  return filename.replace(/\.[^.]+$/, "");
-}
-
-// Resolve local input file — downloads from Cloudinary if needed
+// Resolve local input file
 async function resolveInput(mediaPath) {
   if (!mediaPath) return null;
-
   if (mediaPath.startsWith("/media/")) {
-    // Local file
     const name = path.basename(mediaPath);
     const local = path.join(MEDIA_DIR, name);
     if (fs.existsSync(local)) return { name, input: local, local: true };
     return null;
   }
-
-  if (mediaPath.startsWith("http")) {
-    // Cloudinary URL — download to /tmp
-    const name = pubIdFromUrl(mediaPath).replace(/\//g, "_");
-    const ext = mediaPath.match(/\.(\w+)(\?.*)?$/)?.[1] || "mp4";
-    const localName = `${name}.${ext}`;
-    const local = tmpPath(localName);
-    if (fs.existsSync(local)) return { name: localName, input: local, local: false };
-    try {
-      await download(mediaPath, local);
-      log("download", `fetched ${mediaPath} → ${localName}`);
-      return { name: localName, input: local, local: false };
-    } catch (e) {
-      logErr("download", `failed to fetch ${mediaPath}:`, e.message);
-      return null;
-    }
-  }
-
   return null;
 }
 
-// Upload a local file to Cloudinary and return the URL
-async function uploadDerived(localPath, publicId, resourceType = "video") {
+// ── Step 1: Process everything locally (no Cloudinary) ──────────────────────
+async function processLocally(entry) {
+  const src = await resolveInput(entry.mediaPath);
+  if (!src) return {};
+
+  const base = src.name.replace(/\.[^.]+$/, "");
+  const artifacts = {};
+
+  // Duration
   try {
-    if (resourceType === "image") return await uploadImage(localPath, publicId);
-    return await uploadMedia(localPath, publicId);
-  } catch (e) {
-    logErr("upload", `failed to upload ${publicId}:`, e.message);
-    return null;
-  }
-}
+    const dur = await getDuration(src.input);
+    artifacts.durationSec = Math.round(dur);
+  } catch {}
 
-// Upload raw video to Cloudinary after processing completes
-async function uploadRawVideo(entry) {
-  const src = await resolveInput(entry.mediaPath);
-  if (!src || !src.local) return; // Already on Cloudinary or no file
+  // Poster
+  try {
+    const posterOut = path.join(MEDIA_DIR, `${base}.poster.jpg`);
+    await extractPoster(src.input, posterOut);
+    artifacts.posterPath = `/media/${base}.poster.jpg`;
+    log("local", `poster → ${base}.poster.jpg`);
+  } catch (e) { logErr("local", "poster failed:", e.message); }
 
-  const base = src.name.replace(/\.[^.]+$/, "");
-  const url = await uploadDerived(src.input, base);
-  if (url) {
-    await Entry.findByIdAndUpdate(entry._id, { mediaPath: url });
-    log("upload", `raw video uploaded to Cloudinary: ${url}`);
-  }
-}
-
-// ── Essential media — compress + audio ──────────────────────────────────────
-async function processEssentialMedia(entry) {
-  if (!(await ffmpegAvailable())) { log("media", "ffmpeg not available, skipping"); return; }
-
-  const src = await resolveInput(entry.mediaPath);
-  if (!src) return;
-
-  const base = src.name.replace(/\.[^.]+$/, "");
-  const minOut = tmpPath(`${base}.min.mp4`);
-  const audioOut = tmpPath(`${base}.audio.mp3`);
-
-  const results = await Promise.allSettled([
+  // Compress + audio (parallel)
+  const minOut = path.join(MEDIA_DIR, `${base}.min.mp4`);
+  const audioOut = path.join(MEDIA_DIR, `${base}.audio.mp3`);
+  const [compResult, audioResult] = await Promise.allSettled([
     compress(src.input, minOut, { height: 360, fps: 24, crf: 34, preset: "veryfast" })
-      .then(() => log("media", `compressed → ${base}.min.mp4`)),
+      .then(() => { log("local", `compressed → ${base}.min.mp4`); return true; }),
     extractAudio(src.input, audioOut, { bitrate: "64k", mono: true })
-      .then(() => log("media", `audio → ${base}.audio.mp3`)),
+      .then(() => { log("local", `audio → ${base}.audio.mp3`); return true; }),
   ]);
+  if (compResult.status === "fulfilled") artifacts.compressedPath = `/media/${base}.min.mp4`;
+  if (audioResult.status === "fulfilled") artifacts.audioPath = `/media/${base}.audio.mp3`;
 
-  const set = {};
-  if (results[0].status === "fulfilled") {
-    const url = await uploadDerived(minOut, `${base}.min`);
-    if (url) set.compressedPath = url;
-  } else logErr("media", "compress failed:", results[0].reason?.message);
+  // Decorative — random pick 1-2
+  const effects = ["dither", "retro"];
+  const picked = effects.sort(() => Math.random() - 0.5).slice(0, 1 + Math.floor(Math.random() * 2));
+  log("local", `picked effects: ${picked.join(", ")}`);
 
-  if (results[1].status === "fulfilled") {
-    const url = await uploadDerived(audioOut, `${base}.audio`);
-    if (url) set.audioPath = url;
-  } else logErr("media", "extractAudio failed:", results[1].reason?.message);
-
-  cleanupTmp(`${base}.min.mp4`);
-  cleanupTmp(`${base}.audio.mp3`);
-
-  if (Object.keys(set).length) await Entry.findByIdAndUpdate(entry._id, set);
-}
-
-// ── Decorative media — dither + cartoon ─────────────────────────────────────
-async function processDecorativeMedia(entry) {
-  if (!(await ffmpegAvailable())) return;
-
-  const src = await resolveInput(entry.mediaPath);
-  if (!src) return;
-
-  const base = src.name.replace(/\.[^.]+$/, "");
-  const ditherOut = tmpPath(`${base}.dither.webp`);
-  const cartoonOut = tmpPath(`${base}.cartoon.mp4`);
-
-  const results = await Promise.allSettled([
-    pixelDither(src.input, ditherOut, {
-      width: 200, up: 480, fps: 12, colors: 48, bayer: 3, quality: 75,
-    }).then(() => log("media", `dither → ${base}.dither.webp`)),
-    cartoonifyRetro(src.input, cartoonOut, { height: 360, fps: 24, crf: 28, preset: "fast" })
-      .then(() => log("media", `retro cartoon → ${base}.cartoon.mp4`)),
-  ]);
-
-  const set = {};
-  if (results[0].status === "fulfilled") {
-    const url = await uploadDerived(ditherOut, `${base}.dither`);
-    if (url) set.ditherPath = url;
-  } else logErr("media", "pixelDither failed:", results[0].reason?.message);
-
-  if (results[1].status === "fulfilled") {
-    const url = await uploadDerived(cartoonOut, `${base}.cartoon`);
-    if (url) set.cartoonPath = url;
-  } else logErr("media", "cartoonify failed:", results[1].reason?.message);
-
-  cleanupTmp(`${base}.dither.webp`);
-  cleanupTmp(`${base}.cartoon.mp4`);
-
-  if (Object.keys(set).length) await Entry.findByIdAndUpdate(entry._id, set);
-}
-
-// ── Extract visual frames ───────────────────────────────────────────────────
-async function getVisualFrames(entry, clientFrames = []) {
-  if (clientFrames.length > 0) return clientFrames;
-  if (!(await ffmpegAvailable())) return [];
-
-  const src = await resolveInput(entry.mediaPath);
-  if (!src) return [];
-
-  try {
-    const frames = await extractFrames(src.input, { count: 4, width: 512 });
-    if (frames.length) log("frames", `extracted ${frames.length} frames from video`);
-    return frames.map((f) => `data:${f.mimeType};base64,${f.base64}`);
-  } catch (e) {
-    logErr("frames", "frame extraction failed:", e.message);
-    return [];
+  if (picked.includes("dither")) {
+    try {
+      const ditherOut = path.join(MEDIA_DIR, `${base}.dither.webp`);
+      await pixelDither(src.input, ditherOut, {
+        width: 200, up: 480, fps: 12, colors: 48, bayer: 3, quality: 75,
+      });
+      artifacts.ditherPath = `/media/${base}.dither.webp`;
+      log("local", `dither → ${base}.dither.webp`);
+    } catch (e) { logErr("local", "dither failed:", e.message); }
   }
+
+  if (picked.includes("retro")) {
+    try {
+      const retroOut = path.join(MEDIA_DIR, `${base}.retro.mp4`);
+      await cartoonifyRetro(src.input, retroOut, { height: 360, fps: 24, crf: 28, preset: "fast" });
+      artifacts.retroPath = `/media/${base}.retro.mp4`;
+      log("local", `retro → ${base}.retro.mp4`);
+    } catch (e) { logErr("local", "retro failed:", e.message); }
+  }
+
+  return artifacts;
+}
+
+// ── Step 2: Upload all artifacts to Cloudinary ──────────────────────────────
+async function uploadAll(entry, artifacts) {
+  const updates = {};
+  const base = entry.mediaPath?.match(/\/([^/]+)$/)?.[1]?.replace(/\.[^.]+$/, "");
+  if (!base) return updates;
+
+  // Raw video
+  if (entry.mediaPath?.startsWith("/media/")) {
+    const localPath = path.join(MEDIA_DIR, path.basename(entry.mediaPath));
+    if (fs.existsSync(localPath)) {
+      try {
+        updates.mediaPath = await uploadMedia(localPath, base);
+        log("upload", `raw → Cloudinary`);
+      } catch (e) { logErr("upload", "raw failed:", e.message); }
+    }
+  }
+
+  // All derived artifacts
+  const fieldMap = {
+    posterPath: { ext: ".poster.jpg", type: "image" },
+    compressedPath: { ext: ".min.mp4", type: "video" },
+    audioPath: { ext: ".audio.mp3", type: "video" },
+    ditherPath: { ext: ".dither.webp", type: "video" },
+    retroPath: { ext: ".retro.mp4", type: "video" },
+  };
+
+  for (const [field, { ext, type }] of Object.entries(fieldMap)) {
+    const localPath = path.join(MEDIA_DIR, `${base}${ext}`);
+    if (fs.existsSync(localPath)) {
+      try {
+        const pubId = `${base}${ext.replace(/\.[^.]+$/, "")}`;
+        const url = type === "image"
+          ? await uploadImage(localPath, pubId)
+          : await uploadMedia(localPath, pubId);
+        if (url) updates[field] = url;
+        log("upload", `${field} → Cloudinary`);
+      } catch (e) { logErr("upload", `${field} failed:`, e.message); }
+    }
+  }
+
+  return updates;
 }
 
 // ── Main pipeline ───────────────────────────────────────────────────────────
@@ -194,44 +145,15 @@ export async function runPipeline(entryId, transcriptText, clientFrames = []) {
     let text = (transcriptText || "").trim();
     let segments = [];
 
-    // ── Step 0: Auto-detect duration if missing ──
-    if (!entry.durationSec && (await ffmpegAvailable())) {
-      const src = await resolveInput(entry.mediaPath);
-      if (src) {
-        try {
-          const dur = await getDuration(src.input);
-          await Entry.findByIdAndUpdate(entryId, { durationSec: Math.round(dur) });
-          entry.durationSec = Math.round(dur);
-          log("main", `detected duration: ${entry.durationSec}s`);
-        } catch (e) {
-          logErr("main", "duration detection failed:", e.message);
-        }
-      }
+    // ── Step 1: Process locally ──
+    const artifacts = await processLocally(entry);
+    if (artifacts.durationSec) {
+      await Entry.findByIdAndUpdate(entryId, { durationSec: artifacts.durationSec });
+      entry.durationSec = artifacts.durationSec;
     }
 
-    // ── Step 0b: Extract poster if missing ──
-    if (!entry.posterPath && (await ffmpegAvailable())) {
-      const src = await resolveInput(entry.mediaPath);
-      if (src) {
-        try {
-          const base = src.name.replace(/\.[^.]+$/, "");
-          const posterLocal = tmpPath(`${base}.poster.jpg`);
-          await extractPoster(src.input, posterLocal);
-          const posterUrl = await uploadDerived(posterLocal, `${base}.poster`, "image");
-          if (posterUrl) {
-            await Entry.findByIdAndUpdate(entryId, { posterPath: posterUrl });
-            log("main", `extracted poster → Cloudinary`);
-          }
-          cleanupTmp(`${base}.poster.jpg`);
-        } catch (e) {
-          logErr("main", "poster extraction failed:", e.message);
-        }
-      }
-    }
-
-    // ── Step 1: Whisper + Media in parallel ──
+    // ── Step 2: Transcribe + extract frames (parallel) ──
     await Entry.findByIdAndUpdate(entryId, { status: "transcribing" });
-
     const src = await resolveInput(entry.mediaPath);
 
     const whisperTask = (async () => {
@@ -243,9 +165,7 @@ export async function runPipeline(entryId, transcriptText, clientFrames = []) {
             segments = r.segments || [];
             log("transcribe", `got ${segments.length} segments, ${text.length} chars`);
           }
-        } catch (e) {
-          logErr("transcribe", "whisper failed:", e.message);
-        }
+        } catch (e) { logErr("transcribe", "whisper failed:", e.message); }
       }
       if (text) {
         await Transcript.findOneAndUpdate(
@@ -259,15 +179,20 @@ export async function runPipeline(entryId, transcriptText, clientFrames = []) {
         await Segment.insertMany(
           segments.map((s) => ({ entry: entryId, startSec: s.startSec, endSec: s.endSec, text: s.text }))
         );
-        log("transcribe", `saved ${segments.length} segments to DB`);
       }
     })();
 
-    const mediaTask = processEssentialMedia(entry);
-    await Promise.all([whisperTask, mediaTask]);
+    const framesTask = (async () => {
+      if (src && (await ffmpegAvailable())) {
+        try {
+          const frames = await extractFrames(src.input, { count: 4, width: 512 });
+          return frames.map((f) => `data:${f.mimeType};base64,${f.base64}`);
+        } catch { return []; }
+      }
+      return [];
+    })();
 
-    // ── Step 2: Visual frames ──
-    const frames = await getVisualFrames(entry, clientFrames);
+    const [_, frames] = await Promise.all([whisperTask, framesTask]);
 
     // ── Step 3: AI Analysis ──
     await Entry.findByIdAndUpdate(entryId, { status: "analyzing" });
@@ -302,19 +227,18 @@ export async function runPipeline(entryId, transcriptText, clientFrames = []) {
     );
     log("analyze", `saved analysis (sentiment=${a.sentiment}, ${a.topics?.length || 0} topics)`);
 
-    // ── Step 4: Ready ──
+    // ── Step 4: Mark ready ──
     await Entry.findByIdAndUpdate(entryId, { status: "ready" });
     log("main", `✓ entry ready ${entryId} in ${Date.now() - t0}ms`);
 
-    // ── Step 5: Upload raw video to Cloudinary ──
-    await uploadRawVideo(entry).catch((e) =>
-      logErr("upload", "raw video upload failed:", e.message)
-    );
+    // ── Step 5: Upload everything to Cloudinary ──
+    const freshEntry = await Entry.findById(entryId);
+    const updates = await uploadAll(freshEntry, artifacts);
+    if (Object.keys(updates).length) {
+      await Entry.findByIdAndUpdate(entryId, updates);
+      log("main", `✓ uploaded ${Object.keys(updates).length} artifacts to Cloudinary`);
+    }
 
-    // ── Step 6: Decorative (after ready) ──
-    await processDecorativeMedia(entry).catch((e) =>
-      logErr("media", "decorative media failed:", e.message)
-    );
     log("main", `✓ pipeline complete for ${entryId} in ${Date.now() - t0}ms`);
   } catch (err) {
     logErr("main", `entry ${entryId} failed:`, err.message);

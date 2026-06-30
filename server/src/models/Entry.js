@@ -23,6 +23,7 @@ const entrySchema = new Schema(
     posterPath: { type: String }, // still frame thumbnail (from first captured frame)
     compressedPath: { type: String }, // h264 mp4 for cheap playback
     cartoonPath: { type: String }, // cartoonified h264 mp4 (saturated + edge outlines)
+    retroPath: { type: String }, // retro vintage cartoon effect
     audioPath: { type: String }, // extracted mono mp3 — the lightweight artifact
     ditherPath: { type: String }, // pixel/dithered GIF preview
     durationSec: { type: Number },
