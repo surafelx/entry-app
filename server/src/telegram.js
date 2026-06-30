@@ -106,20 +106,25 @@ function sendWithEffects(bot, ctx, entry, effects) {
       if (!full || !full.analysis) return;
       const a = full.analysis;
       const mood = a.sentiment > 0.25 ? "😊" : a.sentiment < -0.25 ? "😔" : "😐";
+      const dur = full.durationSec ? `${Math.round(full.durationSec)}s` : "";
+      const domains = (a.lifeSections || []).map(s => s.domain);
+      const tags = [
+        ...(a.topics || []).slice(0, 5),
+        ...domains.slice(0, 3),
+      ].map(t => `#${t.replace(/\s+/g, "")}`).join(" ");
+
       const lines = [
-        `${mood} ${full.title || "Untitled"}`,
+        `${mood} ${full.title || "Untitled"}${dur ? ` · ${dur}` : ""}`,
         "",
         a.standing || a.summary || "",
-        a.topics?.length ? `#${a.topics.slice(0, 4).join(" #")}` : "",
-        a.growth ? `growth: ${a.growth}` : "",
+        tags ? `\n${tags}` : "",
       ].filter(Boolean);
       const caption = lines.join("\n");
 
-      // Pick best video: compressed is smallest, effects are decorative
-      const videoUrl = full.compressedPath || full.mediaPath;
+      // Send the processed video (retro/compressed/whatever is best)
+      const videoUrl = full.retroPath || full.cartoonPath || full.compressedPath || full.mediaPath;
       if (!videoUrl) return;
 
-      // Download video to temp, then send
       const res = await fetch(videoUrl);
       if (!res.ok) return;
       const buf = Buffer.from(await res.arrayBuffer());
@@ -127,7 +132,7 @@ function sendWithEffects(bot, ctx, entry, effects) {
       const fs = await import("node:fs/promises");
       await fs.writeFile(tmpFile, buf);
 
-      await bot.api.sendVideo(CHANNEL_ID, new InputFile(tmpFile), { caption });
+      await bot.api.sendVideo(CHANNEL_ID, new InputFile(tmpFile), { caption, parse_mode: undefined });
       await fs.unlink(tmpFile).catch(() => {});
       log("channel", `posted ${entryId} to ${CHANNEL_ID}`);
     } catch (e) {
@@ -200,13 +205,15 @@ export function startBot() {
     const key = ctx.chat.id;
     const p = pending.get(key);
     if (!p) {
-      await ctx.editMessageText(`effects: ${effectLabel(effects)}\nprocessing...`);
+      try { await ctx.editMessageCaption({ caption: `effects: ${effectLabel(effects)}\nprocessing...` }); }
+      catch { await ctx.editMessageText(`effects: ${effectLabel(effects)}\nprocessing...`).catch(() => {}); }
       return;
     }
 
     pending.delete(key);
 
-    await ctx.editMessageText(`effects: ${effectLabel(effects)}\nprocessing...`);
+    try { await ctx.editMessageCaption({ caption: `effects: ${effectLabel(effects)}\nprocessing...` }); }
+    catch { await ctx.editMessageText(`effects: ${effectLabel(effects)}\nprocessing...`).catch(() => {}); }
 
     sendWithEffects(bot, ctx, p.entry, effects);
   });
@@ -221,7 +228,7 @@ export function startBot() {
       let previewPath = null;
       try {
         previewPath = `/tmp/preview_${entry._id}.jpg`;
-        execSync(`ffmpeg -y -i "${mediaPath}" -frames:v 1 -vf "scale=480:-2" -q:v 4 "${previewPath}"`, { timeout: 10000 });
+        execSync(`ffmpeg -y -i "${mediaPath}" -frames:v 1 -vf "scale=480:-2" -update 1 -q:v 4 "${previewPath}"`, { timeout: 10000 });
       } catch { previewPath = null; }
 
       const caption = `downloaded: ${entry.title || "(untitled)"}\n\npick effects to apply:`;

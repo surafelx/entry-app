@@ -295,16 +295,33 @@ export function createMusicGen(audioCtx) {
     tick();
   }
 
-  function start() {
-    if (playing) return;
-    playing = true;
-    masterGain.gain.setTargetAtTime(0.5, audioCtx.currentTime, 0.5);
-
-    createDrone();
+  // Spin up every generative layer for the current mood. Reads rootNote/scale/
+  // mood live, so it always reflects the latest genre.
+  function startGenerators() {
+    nodes.push(...createDrone());
     startArp();
     startBass();
     startPerc();
     startChordPad();
+  }
+
+  // Tear down the running layers (persistent drone voices + all loop timers)
+  // without muting the master — used to swap genres on the fly.
+  function stopGenerators() {
+    intervals.forEach(clearInterval);
+    intervals = [];
+    nodes.forEach((n) => {
+      try { n.osc?.stop(); } catch {}
+      try { n.lfo?.stop(); } catch {}
+    });
+    nodes = [];
+  }
+
+  function start() {
+    if (playing) return;
+    playing = true;
+    masterGain.gain.setTargetAtTime(0.5, audioCtx.currentTime, 0.5);
+    startGenerators();
   }
 
   function stop() {
@@ -322,12 +339,16 @@ export function createMusicGen(audioCtx) {
     }, 500);
   }
 
+  // Switch genre. GENRE_CONFIG is the single source of truth for root/scale/
+  // reverb. If music is already playing, rebuild every layer so the change is
+  // immediately audible (a fresh track in the new genre) — otherwise clicking
+  // the button only relabelled silent state.
   function setMood(m) {
-    mood = m;
-    if (m === "dark") { rootNote = 45; scale = SCALES.phrygian; }
-    else if (m === "intense") { rootNote = 50; scale = SCALES.blues; }
-    else if (m === "dreamy") { rootNote = 48; scale = SCALES.lydian; }
-    else { rootNote = 48; scale = SCALES.minor; }
+    applyGenre(m);
+    if (playing) {
+      stopGenerators();
+      startGenerators();
+    }
   }
 
   function setVolume(v) {
