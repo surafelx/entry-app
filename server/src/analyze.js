@@ -105,14 +105,38 @@ function buildPrompt(transcript, meta) {
   const when = meta?.recordedAt
     ? new Date(meta.recordedAt).toLocaleString()
     : "unknown time";
-  return `Recording metadata: source=${meta?.source || "unknown"}, recorded=${when}, title=${meta?.title || "(untitled)"}.
+
+  let prompt = `Recording metadata: source=${meta?.source || "unknown"}, recorded=${when}, title=${meta?.title || "(untitled)"}.
 
 Transcript:
 """
 ${transcript}
-"""
+"""`;
 
-Analyze this moment and draft where this person is in their life.`;
+  // Inject voice analysis context
+  if (meta?.voiceEmotion) {
+    const ve = meta.voiceEmotion;
+    prompt += `\n\nVOICE EMOTION ANALYSIS: emotion="${ve.emotion || "unknown"}", confidence=${ve.confidence || 0}, vocalTone="${ve.vocalTone || "unknown"}"`;
+  }
+  if (meta?.audioFeatures) {
+    const af = meta.audioFeatures;
+    prompt += `\nAUDIO FEATURES: energy=${af.rmsEnergy}dB, peak=${af.peakDb}dB, speakingPace=${Math.round((af.speakingRate || 0) * 100)}%, pauseRatio=${Math.round((af.pauseRatio || 0) * 100)}%, loudness=${af.loudness}LUFS`;
+  }
+
+  // Inject image analysis context
+  if (meta?.imageAnalysis) {
+    const ia = meta.imageAnalysis;
+    const parts = [];
+    if (ia.scene) parts.push(`scene: ${ia.scene}`);
+    if (ia.facialExpression) parts.push(`expression: ${ia.facialExpression}`);
+    if (ia.bodyLanguage) parts.push(`body language: ${ia.bodyLanguage}`);
+    if (ia.mood) parts.push(`visual mood: ${ia.mood}`);
+    if (ia.objects?.length) parts.push(`objects: ${ia.objects.join(", ")}`);
+    if (parts.length) prompt += `\n\nIMAGE ANALYSIS: ${parts.join("; ")}`;
+  }
+
+  prompt += "\n\nAnalyze this moment and draft where this person is in their life.";
+  return prompt;
 }
 
 function buildMemoryBlock(memoryEntries) {

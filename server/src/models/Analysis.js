@@ -40,6 +40,30 @@ const analysisSchema = new Schema({
   patterns: { type: [String], default: [] }, // recurring themes across entries
   growth: { type: String, default: "" }, // how this entry compares to previous ones
   raw: { type: Schema.Types.Mixed }, // full JSON the model returned
+  // ── Voice analysis ──
+  audioFeatures: {
+    rmsEnergy: { type: Number },
+    peakDb: { type: Number },
+    speakingRate: { type: Number },    // 0-1, ratio of active speech
+    pauseRatio: { type: Number },      // 0-1, ratio of silence
+    loudness: { type: Number },        // LUFS
+    duration: { type: Number },        // seconds
+  },
+  voiceEmotion: {
+    emotion: { type: String },
+    confidence: { type: Number },
+    vocalTone: { type: String },
+  },
+  // ── Vision analysis ──
+  imageAnalysis: {
+    scene: { type: String },
+    facialExpression: { type: String },
+    bodyLanguage: { type: String },
+    setting: { type: String },
+    lighting: { type: String },
+    mood: { type: String },
+    objects: { type: [String], default: [] },
+  },
 });
 
 export default model("Analysis", analysisSchema);

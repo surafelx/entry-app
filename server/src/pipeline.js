@@ -11,6 +11,8 @@ import {
   extractFrames, extractPoster, getDuration, probe,
 } from "./media.js";
 import { whisperAvailable, transcribe } from "./transcribe.js";
+import { extractAudioFeatures, analyzeVoiceEmotion } from "./voiceAnalysis.js";
+import { analyzeImage } from "./imageAnalysis.js";
 import { MEDIA_DIR } from "./index.js";
 import { uploadMedia, uploadImage, tmpPath, cleanupTmp } from "./cloudinary.js";
 
@@ -249,6 +251,39 @@ export async function runPipeline(entryId, transcriptText, clientFrames = [], op
 
     const [_, frames] = await Promise.all([whisperTask, framesTask]);
 
+    // ── Step 2b: Audio features via ffmpeg ──
+    let audioFeatures = null;
+    const audioPath = artifacts.audioPath || entry.audioPath;
+    if (audioPath) {
+      const audioFile = audioPath.startsWith("/media/")
+        ? path.join(MEDIA_DIR, path.basename(audioPath))
+        : audioPath;
+      if (fs.existsSync(audioFile)) {
+        send("extracting audio features...");
+        audioFeatures = extractAudioFeatures(audioFile);
+        if (audioFeatures) log("voice", "audio features extracted:", JSON.stringify(audioFeatures));
+      }
+    }
+
+    // ── Step 2c: Voice emotion analysis ──
+    let voiceEmotion = null;
+    if (text || audioFeatures) {
+      send("analyzing voice emotion...");
+      const audioFile = audioPath?.startsWith("/media/")
+        ? path.join(MEDIA_DIR, path.basename(audioPath))
+        : audioPath;
+      voiceEmotion = await analyzeVoiceEmotion(text, audioFeatures, audioFile);
+      if (voiceEmotion) log("voice", "emotion:", JSON.stringify(voiceEmotion));
+    }
+
+    // ── Step 2d: Image analysis via Gemini ──
+    let imageAnalysis = null;
+    if (frames?.length) {
+      send("analyzing visuals...");
+      imageAnalysis = await analyzeImage(frames);
+      if (imageAnalysis) log("vision", "image analysis:", JSON.stringify(imageAnalysis));
+    }
+
     // ── Step 3: AI Analysis ──
     await Entry.findByIdAndUpdate(entryId, { status: "analyzing" });
     send("analyzing with AI...");
@@ -260,6 +295,9 @@ export async function runPipeline(entryId, transcriptText, clientFrames = [], op
       recordedAt: entry.recordedAt,
       frames,
       entryId,
+      audioFeatures,
+      voiceEmotion,
+      imageAnalysis,
     });
 
     const lifeSections = (a.lifeSections || []).map((s) => ({
@@ -278,6 +316,9 @@ export async function runPipeline(entryId, transcriptText, clientFrames = [], op
         followUps: a.followUps, lifeSections, standing: a.standing,
         visual: a.visual, patterns: a.patterns || [], growth: a.growth || "",
         raw: a.raw,
+        ...(audioFeatures && { audioFeatures }),
+        ...(voiceEmotion && { voiceEmotion }),
+        ...(imageAnalysis && { imageAnalysis }),
       },
       { upsert: true }
     );
