@@ -1,4 +1,4 @@
-const BASE = "https://143b-196-188-242-241.ngrok-free.app";
+const BASE = import.meta.env.VITE_API_URL || "http://localhost:4000";
 const HEADERS = { "Content-Type": "application/json" };
 
 async function request(path, options) {
