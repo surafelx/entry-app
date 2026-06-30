@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import ChatRoom from "./ChatRoom.jsx";
 
 const PEOPLE = [
@@ -18,45 +18,85 @@ function initials(name) {
 
 export default function Community() {
   const [people, setPeople] = useState(PEOPLE);
+  const [visitorCount, setVisitorCount] = useState(() => Math.floor(Math.random() * 12) + 8);
+  const [feedback, setFeedback] = useState("");
+  const [feedbackSent, setFeedbackSent] = useState(false);
   const followingCount = people.filter((p) => p.following).length;
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setVisitorCount((v) => Math.max(1, v + Math.floor(Math.random() * 5) - 2));
+    }, 6000);
+    return () => clearInterval(id);
+  }, []);
 
   const toggle = (handle) =>
     setPeople((prev) => prev.map((p) => p.handle === handle ? { ...p, following: !p.following } : p));
 
-  return (
-    <div className="community-overlay">
-      <h2 className="view-title">Community</h2>
-      <p className="view-sub">{people.length} people journaling out loud · following {followingCount}</p>
+  const submitFeedback = () => {
+    if (!feedback.trim()) return;
+    setFeedbackSent(true);
+    setFeedback("");
+    setTimeout(() => setFeedbackSent(false), 3000);
+  };
 
-      <div className="community-layout">
-        <div className="community-sidebar">
-          {people.map((p) => (
-            <article key={p.handle} className="person glass">
-              <div className="person-top">
-                <span className="avatar" style={{ background: p.color }}>{initials(p.name)}</span>
-                <div className="person-id">
-                  <h3>{p.name}</h3>
-                  <span className="person-handle">@{p.handle}</span>
-                </div>
-                <button className={`follow ${p.following ? "on" : ""}`} onClick={() => toggle(p.handle)}>
-                  {p.following ? "Following" : "Follow"}
-                </button>
+  return (
+    <div className="community-layout">
+      <div className="community-sidebar">
+        <p className="community-sub">{people.length} people journaling out loud · following {followingCount}</p>
+        <div className="visitor-count">
+          <span className="visitor-dot" />
+          <span>{visitorCount} currently online</span>
+        </div>
+        {people.map((p) => (
+          <article key={p.handle} className="person">
+            <div className="person-top">
+              <span className="avatar" style={{ background: p.color }}>{initials(p.name)}</span>
+              <div className="person-id">
+                <h3>{p.name}</h3>
+                <span className="person-handle">@{p.handle}</span>
               </div>
-              <p className="person-note">"{p.note}"</p>
-              <div className="person-stats">
-                <span><b>{p.streak}</b> streak</span>
-                <span><b>{p.moments}</b> moments</span>
-              </div>
-              <div className="person-foot">
-                <span className="person-mood">{p.mood}</span>
-                <span className="person-focus">{p.focus}</span>
-              </div>
-            </article>
-          ))}
+              <button className={`follow ${p.following ? "on" : ""}`} onClick={() => toggle(p.handle)}>
+                {p.following ? "Following" : "Follow"}
+              </button>
+            </div>
+            <p className="person-note">"{p.note}"</p>
+            <div className="person-stats">
+              <span><b>{p.streak}</b> streak</span>
+              <span><b>{p.moments}</b> moments</span>
+            </div>
+            <div className="person-foot">
+              <span className="person-mood">{p.mood}</span>
+              <span className="person-focus">{p.focus}</span>
+            </div>
+          </article>
+        ))}
+      </div>
+
+      <div className="community-right">
+        <div className="community-chat-wrap">
+          <ChatRoom roomId={COMMUNITY_ROOM_ID} roomName="General" userName="You" />
         </div>
 
-        <div className="community-chat-wrap glass">
-          <ChatRoom roomId={COMMUNITY_ROOM_ID} roomName="General" userName="You" />
+        <div className="feedback-box">
+          <h4>Leave feedback</h4>
+          {feedbackSent ? (
+            <p className="feedback-thanks">Thanks for your feedback!</p>
+          ) : (
+            <>
+              <textarea
+                className="feedback-input"
+                placeholder="What's on your mind?"
+                rows={3}
+                value={feedback}
+                onChange={(e) => setFeedback(e.target.value)}
+              />
+              <div className="feedback-actions">
+                <button className="follow on" onClick={submitFeedback} disabled={!feedback.trim()}>Send</button>
+                <a className="feedback-email" href="mailto:hello@entry.app">or email us</a>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

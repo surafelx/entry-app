@@ -8,6 +8,7 @@ import { createMusicGen } from "./music.js";
 import { createAudioFX } from "./audioFx.js";
 import Recorder from "./Recorder.jsx";
 import Visuals from "./Visuals.jsx";
+import Community from "./Community.jsx";
 
 const ARC = { rising: "↗", falling: "↘", flat: "→" };
 const mmss = (s) => {
@@ -412,80 +413,9 @@ export default function App() {
           )}
 
           {view === "community" && (
-            <div className="v-panel life-panel">
-              <ViewHead title="life" onBack={() => go("home")} />
-
-              {/* Summary stats */}
-              <div className="life-stats">
-                <div className="life-stat">
-                  <span className="life-stat-val">{total}</span>
-                  <span className="life-stat-label">moments</span>
-                </div>
-                <div className="life-stat">
-                  <span className="life-stat-val">{domains.length}</span>
-                  <span className="life-stat-label">domains</span>
-                </div>
-                <div className="life-stat">
-                  <span className="life-stat-val">{avg > 0 ? "+" : ""}{(avg * 100).toFixed(0)}%</span>
-                  <span className="life-stat-label">mood</span>
-                </div>
-                <div className="life-stat">
-                  <span className="life-stat-val">{topArc || "—"}</span>
-                  <span className="life-stat-label">arc</span>
-                </div>
-              </div>
-
-              {/* Domain cards */}
-              <div className="life-domains">
-                {domains.map(({ domain, notes }) => {
-                  const latest = notes[0];
-                  const a = latest?.analysis;
-                  const mood = a?.sentiment > 0.25 ? "😊" : a?.sentiment < -0.25 ? "😔" : "😐";
-                  const recentTopics = a?.topics?.slice(0, 3) || [];
-                  return (
-                    <button key={domain} className="life-domain" onClick={() => openDomain(domain, notes)}>
-                      <div className="ld-top">
-                        <span className="ld-name">{domain}</span>
-                        <span className="ld-count">{notes.length}</span>
-                      </div>
-                      {a?.standing && <p className="ld-standing">{a.standing}</p>}
-                      <div className="ld-meta">
-                        {mood && <span className="ld-mood">{mood}</span>}
-                        {recentTopics.length > 0 && (
-                          <span className="ld-topics">{recentTopics.map(t => `#${t}`).join(" ")}</span>
-                        )}
-                      </div>
-                      <div className="ld-bar">
-                        {notes.slice(0, 7).reverse().map((n, i) => (
-                          <span key={i} className="ld-dot" style={{
-                            background: (n.analysis?.sentiment || 0) > 0.25 ? "var(--green)" :
-                              (n.analysis?.sentiment || 0) < -0.25 ? "var(--accent)" : "var(--muted)"
-                          }} />
-                        ))}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Recent entries */}
-              <div className="life-recent">
-                <span className="life-recent-title">recent</span>
-                {entries.slice(0, 5).map((e) => {
-                  const a = e.analysis;
-                  const mood = a?.sentiment > 0.25 ? "😊" : a?.sentiment < -0.25 ? "😔" : "😐";
-                  return (
-                    <button key={e._id} className="life-entry" onClick={() => e.status === "ready" && a && onOpen(e)}>
-                      {thumbSrc(e) && <img src={thumbSrc(e)} className="life-entry-thumb" alt="" />}
-                      <div className="life-entry-info">
-                        <span className="life-entry-title">{e.title || "Untitled"}</span>
-                        <span className="life-entry-meta">{timeAgo(e.recordedAt)} · {e.durationSec ? `${e.durationSec}s` : ""}</span>
-                      </div>
-                      {mood && <span className="life-entry-mood">{mood}</span>}
-                    </button>
-                  );
-                })}
-              </div>
+            <div className="v-panel">
+              <ViewHead title="People" onBack={() => go("home")} />
+              <Community />
             </div>
           )}
 
