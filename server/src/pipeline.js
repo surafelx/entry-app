@@ -225,17 +225,17 @@ export async function runPipeline(entryId, transcriptText, clientFrames = []) {
     );
     log("analyze", `saved analysis (sentiment=${a.sentiment}, ${a.topics?.length || 0} topics)`);
 
-    // ── Step 4: Mark ready ──
-    await Entry.findByIdAndUpdate(entryId, { status: "ready" });
-    log("main", `✓ entry ready ${entryId} in ${Date.now() - t0}ms`);
-
-    // ── Step 5: Upload everything to Cloudinary ──
+    // ── Step 4: Upload everything to Cloudinary ──
     const freshEntry = await Entry.findById(entryId);
     const updates = await uploadAll(freshEntry, artifacts);
     if (Object.keys(updates).length) {
       await Entry.findByIdAndUpdate(entryId, updates);
       log("main", `✓ uploaded ${Object.keys(updates).length} artifacts to Cloudinary`);
     }
+
+    // ── Step 5: Mark ready (after upload so DB never has stale local paths) ──
+    await Entry.findByIdAndUpdate(entryId, { status: "ready" });
+    log("main", `✓ entry ready ${entryId} in ${Date.now() - t0}ms`);
 
     log("main", `✓ pipeline complete for ${entryId} in ${Date.now() - t0}ms`);
   } catch (err) {
