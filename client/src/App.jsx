@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { listEntries, getEntry, deleteEntry, listNotes, createNote } from "./api.js";
 import {
-  WORKING, playSrc, moodLabel, sentimentEmoji,
+  WORKING, playSrc, thumbSrc, moodLabel, sentimentEmoji,
   fmtDate, fmtTime, timeAgo, aggregateLife,
 } from "./lib.js";
 import { createMusicGen } from "./music.js";
@@ -792,6 +792,7 @@ function CalendarView({ entries, onOpen, loading, onBack }) {
               return (
                 <div key={e._id} className="cal-day-entry" onClick={() => e.status === "ready" && a && onOpen(e)}>
                   <div className="cal-day-row">
+                    {thumbSrc(e) && <img src={thumbSrc(e)} className="cal-day-thumb" alt="" />}
                     <div className="cal-day-info">
                       <span className="cal-day-name">{e.title || "Untitled"}</span>
                       <span className="cal-day-time">{fmtTime(e.recordedAt)} · {e.durationSec ? mmss(e.durationSec) : ""}</span>
