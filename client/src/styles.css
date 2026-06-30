@@ -1137,6 +1137,9 @@ input { font-family: inherit; }
 .cal-cell:hover { background: rgba(255,255,255,0.06) !important; }
 .cal-day-entry:hover { background: rgba(255,255,255,0.04) !important; }
 
+/* calendar day list view */
+.cal-day-list { display: flex; flex-direction: column; gap: 0.4rem; }
+
 /* reader: darken the side panel boxes into text blocks */
 .r-sec { background: none !important; border: none !important; border-left: 2px solid var(--accent) !important; border-radius: 0 !important; padding: 0.2rem 0 0.2rem 0.7rem !important; }
 .r-title { text-shadow: 0 2px 16px rgba(0,0,0,0.85); }

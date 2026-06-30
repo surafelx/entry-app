@@ -458,31 +458,25 @@ function ViewHead({ title, onBack }) {
 // ── Domain card: focused view of one life domain across all entries ──
 function DomainCard({ domain, notes, onOpen, onBack }) {
   const latest = notes[0];
-  const a = latest?.entry?.analysis || {};
-  // Aggregate emotions across all notes for this domain
-  const allEmotions = [...new Set(notes.flatMap((n) => n.entry?.analysis?.emotions || []))];
-  const allFollowUps = [...new Set(notes.flatMap((n) => n.entry?.analysis?.followUps || []))];
-  const allQuotes = notes.flatMap((n) => (n.entry?.analysis?.quotes || []).map((q) => ({ q, title: n.title, date: n.recordedAt })));
-  // Sentiment trend: newest → oldest
+  // Everything here is built from the DOMAIN's own life-section data (summary,
+  // status, details) — NOT the entry-wide analysis — so each domain page reads
+  // as its own distinct check-in. "money" and "work & craft" no longer share a
+  // standing/quotes/emotions block.
+  // Sentiment trend across this domain's mentions (entry mood per note): newest → oldest
   const sentimentTrend = notes.map((n) => n.entry?.analysis?.sentiment).filter((v) => v != null);
 
   return (
     <div className="v-panel domain-card">
       <ViewHead title={domain} onBack={onBack} />
 
-      {/* Hero: latest standing */}
+      {/* Hero: this domain's own latest read */}
       {latest && (
         <div className="domain-hero">
           <div className="domain-hero-meta">
-            <span className="r-kicker">where you are now</span>
+            <span className="r-kicker">where {domain.toLowerCase()} stands</span>
             <span className={`cr-status ${latest.entry?.status}`}>{latest.status}</span>
           </div>
-          {a.standing && <p className="domain-standing">{a.standing}</p>}
-          <div className="domain-hero-stats">
-            <span><b>{moodLabel(a.sentiment)}</b><i>mood</i></span>
-            <span><b>{ARC[a.trajectory] || "→"} {a.trajectory}</b><i>arc</i></span>
-            <span><b>{a.energy}</b><i>energy</i></span>
-          </div>
+          {latest.summary && <p className="domain-standing">{latest.summary}</p>}
           {sentimentTrend.length > 1 && (
             <div className="domain-trend">
               <span className="r-kicker">mood trend</span>
@@ -496,37 +490,6 @@ function DomainCard({ domain, notes, onOpen, onBack }) {
               </div>
             </div>
           )}
-        </div>
-      )}
-
-      {/* Emotions */}
-      {allEmotions.length > 0 && (
-        <div className="domain-section">
-          <span className="r-kicker">emotions across {notes.length} moments</span>
-          <div className="r-tags r-emos">{allEmotions.slice(0, 8).map((e, i) => <span key={i}>{e}</span>)}</div>
-        </div>
-      )}
-
-      {/* Best quotes */}
-      {allQuotes.length > 0 && (
-        <div className="domain-section">
-          <span className="r-kicker">quotes</span>
-          {allQuotes.slice(0, 3).map((item, i) => (
-            <div key={i} className="domain-quote-card">
-              <p className="r-quote">"{item.q}"</p>
-              <span className="domain-quote-src">{item.title || "Untitled"} · {timeAgo(item.date)}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Follow-ups / open threads */}
-      {allFollowUps.length > 0 && (
-        <div className="domain-section">
-          <span className="r-kicker">open threads</span>
-          {allFollowUps.slice(0, 4).map((f, i) => (
-            <p key={i} className="r-follow">? {f}</p>
-          ))}
         </div>
       )}
 
@@ -549,9 +512,6 @@ function DomainCard({ domain, notes, onOpen, onBack }) {
                   </div>
                   <span className="domain-note-title">{n.title || "Untitled"}</span>
                   <p className="domain-note-text">{n.summary}</p>
-                  {ea.quotes?.length > 0 && (
-                    <p className="domain-note-quote">"{ea.quotes[0]}"</p>
-                  )}
                 </div>
               );
             })}
@@ -777,11 +737,60 @@ function CalendarView({ entries, onOpen, loading, onBack }) {
   }
   function nextMonth() {
     setSelectedDay(null);
-    setMonth(({ year: y, month: m }) => m === 11 ? { year: y + 1, month: 0 } : { year: y, month: m + 1 });
+    setMonth(({ year: y, month: m }) => m === 11 ? { year: y + 1, month: 0 } : { year: y, month: m - 1 });
+  }
+
+  function selectDay(day) {
+    if (byDay[day]?.length) setSelectedDay(day);
   }
 
   const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 
+  // Day list view
+  if (selectedDay) {
+    return (
+      <div className="v-panel">
+        <ViewHead title={`${MONTH_NAMES[mo]} ${selectedDay}`} onBack={() => setSelectedDay(null)} />
+        {selectedEntries.length === 0 ? (
+          <p className="dim">No moments this day.</p>
+        ) : (
+          <div className="cal-day-list">
+            {selectedEntries.map((e) => {
+              const a = e.analysis;
+              const sections = a?.lifeSections || [];
+              const topics = a?.topics || [];
+              return (
+                <div key={e._id} className="cal-day-entry" onClick={() => e.status === "ready" && a && onOpen(e)}>
+                  <div className="cal-day-row">
+                    <div className="cal-day-info">
+                      <span className="cal-day-name">{e.title || "Untitled"}</span>
+                      <span className="cal-day-time">{fmtTime(e.recordedAt)} · {e.durationSec ? mmss(e.durationSec) : ""}</span>
+                    </div>
+                    {a && <span className="cal-day-emoji">{sentimentEmoji(a.sentiment)}</span>}
+                    {e.status !== "ready" && <span className={`cr-status ${e.status}`}>{STATUS_LABELS[e.status]}</span>}
+                  </div>
+                  {sections.length > 0 && (
+                    <div className="cal-day-sections">
+                      {sections.map((s, i) => (
+                        <span key={i} className="cal-day-section">{s.domain}</span>
+                      ))}
+                    </div>
+                  )}
+                  {topics.length > 0 && (
+                    <div className="cal-topics">
+                      {topics.slice(0, 4).map((t) => <span key={t} className="cal-topic">#{t}</span>)}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Calendar grid view
   return (
     <div className="v-panel">
       <ViewHead title="Calendar" onBack={onBack} />
@@ -817,7 +826,7 @@ function CalendarView({ entries, onOpen, loading, onBack }) {
             <button
               key={day}
               className={`cal-cell ${isToday ? "today" : ""} ${isSelected ? "selected" : ""} ${hasEntries ? "has-entries" : ""}`}
-              onClick={() => setSelectedDay(isSelected ? null : day)}
+              onClick={() => selectDay(day)}
             >
               <span className="cal-day-num">{day}</span>
               {hasEntries && (
@@ -831,43 +840,6 @@ function CalendarView({ entries, onOpen, loading, onBack }) {
           );
         })}
       </div>
-
-      {/* Selected day's entries */}
-      {selectedDay && (
-        <div className="cal-day-detail">
-          <h3 className="cal-day-title">{MONTH_NAMES[mo]} {selectedDay}</h3>
-          {selectedEntries.length === 0 && <p className="dim">No moments this day.</p>}
-          {selectedEntries.map((e) => {
-            const a = e.analysis;
-            const sections = a?.lifeSections || [];
-            const topics = a?.topics || [];
-            return (
-              <div key={e._id} className="cal-day-entry" onClick={() => e.status === "ready" && a && onOpen(e)}>
-                <div className="cal-day-row">
-                  <div className="cal-day-info">
-                    <span className="cal-day-name">{e.title || "Untitled"}</span>
-                    <span className="cal-day-time">{fmtTime(e.recordedAt)} · {e.durationSec ? mmss(e.durationSec) : ""}</span>
-                  </div>
-                  {a && <span className="cal-day-emoji">{sentimentEmoji(a.sentiment)}</span>}
-                  {e.status !== "ready" && <span className={`cr-status ${e.status}`}>{STATUS_LABELS[e.status]}</span>}
-                </div>
-                {sections.length > 0 && (
-                  <div className="cal-day-sections">
-                    {sections.map((s, i) => (
-                      <span key={i} className="cal-day-section">{s.domain}</span>
-                    ))}
-                  </div>
-                )}
-                {topics.length > 0 && (
-                  <div className="cal-topics">
-                    {topics.slice(0, 4).map((t) => <span key={t} className="cal-topic">#{t}</span>)}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 }
