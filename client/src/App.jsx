@@ -7,6 +7,7 @@ import {
 import { createMusicGen } from "./music.js";
 import { createAudioFX } from "./audioFx.js";
 import Recorder from "./Recorder.jsx";
+import Visuals from "./Visuals.jsx";
 
 const ARC = { rising: "↗", falling: "↘", flat: "→" };
 const mmss = (s) => {
@@ -512,6 +513,9 @@ export default function App() {
 
         {/* music — fixed top-right corner */}
         <MusicPicker musicGenre={musicGenre} cycleMusic={cycleMusic} musicOpen={musicOpen} setMusicOpen={setMusicOpen} />
+
+        {/* visual insights — fixed bottom-right */}
+        <Visuals entries={entries} />
       </div>
 
       {error && <div className="toast">{error}</div>}
