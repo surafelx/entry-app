@@ -10,7 +10,6 @@ import { randomUUID } from "node:crypto";
 import Entry from "./models/Entry.js";
 import { MEDIA_DIR } from "./index.js";
 import { runPipeline } from "./pipeline.js";
-import { uploadMedia } from "./cloudinary.js";
 
 const log = (tag, ...a) => console.log(`[tg:${tag}]`, ...a);
 
@@ -52,14 +51,8 @@ async function ingestFile(ctx, file, title) {
   fs.writeFileSync(destPath, buf);
   log("ingest", `saved ${buf.length} bytes → ${filename}`);
 
-  // Upload to Cloudinary
-  let mediaPath = `/media/${filename}`;
-  try {
-    mediaPath = await uploadMedia(destPath, filename.replace(/\.[^.]+$/, ""));
-    log("ingest", `uploaded to Cloudinary: ${mediaPath}`);
-  } catch (e) {
-    log("ingest", `Cloudinary upload failed, using local: ${e.message}`);
-  }
+  // Use local path — Cloudinary upload happens after processing completes
+  const mediaPath = `/media/${filename}`;
 
   const entry = await Entry.create({
     recordedAt: new Date(),
@@ -155,10 +148,7 @@ export function startBot() {
       const buf = Buffer.from(await res.arrayBuffer());
       fs.writeFileSync(destPath, buf);
 
-      let mediaPath = `/media/${filename}`;
-      try {
-        mediaPath = await uploadMedia(destPath, filename.replace(/\.[^.]+$/, ""));
-      } catch {}
+      const mediaPath = `/media/${filename}`;
 
       const entry = await Entry.create({
         recordedAt: new Date(),
@@ -196,10 +186,7 @@ export function startBot() {
       const buf = Buffer.from(await res.arrayBuffer());
       fs.writeFileSync(destPath, buf);
 
-      let mediaPath = `/media/${filename}`;
-      try {
-        mediaPath = await uploadMedia(destPath, filename.replace(/\.[^.]+$/, ""));
-      } catch {}
+      const mediaPath = `/media/${filename}`;
 
       const entry = await Entry.create({
         recordedAt: new Date(),

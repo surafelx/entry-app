@@ -80,6 +80,19 @@ async function uploadDerived(localPath, publicId, resourceType = "video") {
   }
 }
 
+// Upload raw video to Cloudinary after processing completes
+async function uploadRawVideo(entry) {
+  const src = await resolveInput(entry.mediaPath);
+  if (!src || !src.local) return; // Already on Cloudinary or no file
+
+  const base = src.name.replace(/\.[^.]+$/, "");
+  const url = await uploadDerived(src.input, base);
+  if (url) {
+    await Entry.findByIdAndUpdate(entry._id, { mediaPath: url });
+    log("upload", `raw video uploaded to Cloudinary: ${url}`);
+  }
+}
+
 // ── Essential media — compress + audio ──────────────────────────────────────
 async function processEssentialMedia(entry) {
   if (!(await ffmpegAvailable())) { log("media", "ffmpeg not available, skipping"); return; }
@@ -293,7 +306,12 @@ export async function runPipeline(entryId, transcriptText, clientFrames = []) {
     await Entry.findByIdAndUpdate(entryId, { status: "ready" });
     log("main", `✓ entry ready ${entryId} in ${Date.now() - t0}ms`);
 
-    // ── Step 5: Decorative (after ready) ──
+    // ── Step 5: Upload raw video to Cloudinary ──
+    await uploadRawVideo(entry).catch((e) =>
+      logErr("upload", "raw video upload failed:", e.message)
+    );
+
+    // ── Step 6: Decorative (after ready) ──
     await processDecorativeMedia(entry).catch((e) =>
       logErr("media", "decorative media failed:", e.message)
     );
