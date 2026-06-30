@@ -16,7 +16,7 @@ const FEATURES = [
   { n: "02", t: "Live transcription", d: "Your words become text as you speak, captioned on screen and saved with the clip." },
   { n: "03", t: "It drafts your life", d: "Claude reads the moment and writes the sections of your life — and where you stand in each." },
   { n: "04", t: "Magazine reader", d: "Open any moment as a full-screen editorial spread. Your week, set in type." },
-  { n: "05", t: "Calendar & streaks", d: "An activity heatmap of every moment. Watch the habit build, day by day." },
+  { n: "05", t: "Logs & streaks", d: "An activity heatmap of every moment. Watch the habit build, day by day." },
   { n: "06", t: "Community", d: "Follow other people journaling out loud. Mood, streaks, the section they're in." },
 ];
 

@@ -49,7 +49,7 @@ function groupByMonth(entries) {
 const STATUS_LABELS = { ingested: "Queued", transcribing: "Transcribing...", analyzing: "Analyzing...", ready: "Ready", error: "Error" };
 const NAV = [
   { id: "home", label: "home" },
-  { id: "calendar", label: "calendar" },
+  { id: "calendar", label: "logs" },
   { id: "community", label: "people" },
 ];
 
@@ -119,12 +119,16 @@ export default function App() {
   const onHome = view === "home";
   // In the reader the background plays the entry being read; elsewhere it cycles.
   const inReader = view === "reader" && openEntry?.mediaPath;
-  const bgEntry = inReader ? openEntry : current;
+  // A domain/check-in page plays its own latest entry behind the panel.
+  const domainEntry = view === "domain" ? domainData?.notes?.[0]?.entry : null;
+  const inDomain = !!domainEntry?.mediaPath;
+  const bgEntry = inReader ? openEntry : inDomain ? domainEntry : current;
   // Home + reader share one behaviour: dim (B&W) while the UI is up, clear
-  // full-bleed video once idle. Flat panels hide the video entirely.
+  // full-bleed video once idle. A domain page keeps the video permanently dimmed
+  // behind its (frosted) panel. Other flat panels hide the video entirely.
   // NB: the modifier must not be the literal "reader" — that collides with the
   // .reader panel rules and would shrink the background to the panel width.
-  const bgMode = (onHome || inReader) ? (visible ? "dim" : "") : "off";
+  const bgMode = (onHome || inReader) ? (visible ? "dim" : "") : (inDomain ? "dim" : "off");
 
   async function refresh() {
     if (!bootedRef.current) setLoadPhase((p) => (p === "connecting" ? "fetching" : p));
@@ -318,7 +322,7 @@ export default function App() {
         ) : <div className="bg-vid fallback" />}
         {/* Dithering canvas overlay */}
         <canvas ref={(c) => { if (c && !c._drawn) { c._drawn = true; drawDitherCanvas(c); } }} className="dither-canvas" width={320} height={180} />
-        {((onHome || inReader) && visible) && <div className="bg-overlay" />}
+        {bgMode === "dim" && <div className="bg-overlay" />}
         <div className="dither-overlay" />
       </div>
 
@@ -465,27 +469,35 @@ function DomainCard({ domain, notes, onOpen, onBack }) {
   // Sentiment trend across this domain's mentions (entry mood per note): newest → oldest
   const sentimentTrend = notes.map((n) => n.entry?.analysis?.sentiment).filter((v) => v != null);
 
+  const moodColor = (s) => (s > 0.25 ? "#22c55e" : s < -0.25 ? "#ef4444" : "#eab308");
+
   return (
     <div className="v-panel domain-card">
-      <ViewHead title={domain} onBack={onBack} />
+      <div className="domain-top">
+        <button className="back-btn" onClick={onBack}>← back</button>
+        <div className="domain-head">
+          <h2 className="domain-title">{domain}</h2>
+          <span className="domain-sub">
+            {notes.length} {notes.length === 1 ? "mention" : "mentions"}
+            {latest && <> · latest {timeAgo(latest.recordedAt)}</>}
+          </span>
+        </div>
+      </div>
 
       {/* Hero: this domain's own latest read */}
       {latest && (
         <div className="domain-hero">
           <div className="domain-hero-meta">
             <span className="r-kicker">where {domain.toLowerCase()} stands</span>
-            <span className={`cr-status ${latest.entry?.status}`}>{latest.status}</span>
+            {latest.status && <span className="domain-pill">{latest.status}</span>}
           </div>
           {latest.summary && <p className="domain-standing">{latest.summary}</p>}
           {sentimentTrend.length > 1 && (
             <div className="domain-trend">
-              <span className="r-kicker">mood trend</span>
+              <span className="domain-trend-label">mood over time</span>
               <div className="domain-trend-bar">
-                {sentimentTrend.map((s, i) => (
-                  <span key={i} className="domain-trend-dot" style={{
-                    background: s > 0.25 ? "#22c55e" : s < -0.25 ? "#ef4444" : "#eab308",
-                    opacity: 1 - i * 0.12,
-                  }} />
+                {[...sentimentTrend].reverse().map((s, i) => (
+                  <span key={i} className="domain-trend-dot" style={{ background: moodColor(s) }} />
                 ))}
               </div>
             </div>
@@ -496,22 +508,24 @@ function DomainCard({ domain, notes, onOpen, onBack }) {
       {/* Timeline */}
       {notes.length > 0 && (
         <div className="domain-section">
-          <span className="r-kicker">timeline · {notes.length} mentions</span>
+          <span className="domain-section-label">timeline</span>
           <div className="domain-timeline">
             {notes.map((n, i) => {
-              const ea = n.entry?.analysis || {};
-              const s = ea.sentiment;
+              const s = n.entry?.analysis?.sentiment;
+              const ready = n.entry?.status === "ready";
               return (
-                <div key={i} className="domain-note" onClick={() => n.entry?.status === "ready" && onOpen(n.entry)}>
-                  <div className="domain-note-head">
-                    <span className="domain-note-dot" style={{
-                      background: s > 0.25 ? "#22c55e" : s < -0.25 ? "#ef4444" : "#eab308",
-                    }} />
-                    <span className="domain-note-date">{fmtTime(n.recordedAt)} · {timeAgo(n.recordedAt)}</span>
-                    <span className={`cr-status ${n.entry?.status}`}>{n.status}</span>
+                <div key={i} className={`domain-note ${ready ? "" : "is-pending"}`}
+                  onClick={() => ready && onOpen(n.entry)}>
+                  <span className="domain-note-dot" style={{ background: moodColor(s) }} />
+                  <div className="domain-note-body">
+                    <div className="domain-note-head">
+                      <span className="domain-note-date">{fmtTime(n.recordedAt)} · {timeAgo(n.recordedAt)}</span>
+                      {n.status && <span className="domain-pill sm">{n.status}</span>}
+                    </div>
+                    <span className="domain-note-title">{n.title || "Untitled"}</span>
+                    <p className="domain-note-text">{n.summary}</p>
                   </div>
-                  <span className="domain-note-title">{n.title || "Untitled"}</span>
-                  <p className="domain-note-text">{n.summary}</p>
+                  {ready && <span className="domain-note-go">→</span>}
                 </div>
               );
             })}
@@ -793,7 +807,7 @@ function CalendarView({ entries, onOpen, loading, onBack }) {
   // Calendar grid view
   return (
     <div className="v-panel">
-      <ViewHead title="Calendar" onBack={onBack} />
+      <ViewHead title="logs" onBack={onBack} />
 
       <div className="cal-controls">
         <div className="cal-month-nav">
