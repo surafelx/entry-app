@@ -92,5 +92,6 @@ export const listNotes = () => request("/notes");
 export const createNote = (text) =>
   request("/notes", { method: "POST", body: JSON.stringify({ text }) });
 
+export const listFeedback = () => request("/feedback");
 export const submitFeedback = (text) =>
   request("/feedback", { method: "POST", body: JSON.stringify({ text }) });

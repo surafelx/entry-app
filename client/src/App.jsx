@@ -327,7 +327,11 @@ export default function App() {
       )}
 
       {/* persistent video background — present on home AND in the reader */}
-      <div className={`bg ${bgMode}`}>
+      <div className={`bg ${bgMode}`} onClick={() => {
+        if (bgVidRef.current) { bgVidRef.current.muted = false; bgVidRef.current.play().catch(() => {}); setSoundReady(true); }
+        setNeedsTap(false);
+        localStorage.setItem("vspam_tapdone", "1");
+      }}>
         {bgEntry ? (
           <video ref={bgVidRef} key={bgEntry._id} className={`bg-vid ${vidReady ? "ready" : ""} ${inReader ? "reader-mode" : ""}`} src={playSrc(bgEntry)} poster={bgEntry.posterPath}
             autoPlay muted={!soundReady} loop={!inReader} playsInline preload="auto"
@@ -342,6 +346,7 @@ export default function App() {
         <canvas ref={(c) => { if (c && !c._drawn) { c._drawn = true; drawDitherCanvas(c); } }} className="dither-canvas" width={320} height={180} />
         {bgMode === "dim" && <div className="bg-overlay" />}
         <div className="dither-overlay" />
+        <div className="vignette" />
       </div>
 
       {/* Tap-to-play overlay for mobile */}
