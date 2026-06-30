@@ -96,18 +96,7 @@ async function uploadAll(entry, artifacts) {
   const base = entry.mediaPath?.match(/\/([^/]+)$/)?.[1]?.replace(/\.[^.]+$/, "");
   if (!base) return updates;
 
-  // Raw video
-  if (entry.mediaPath?.startsWith("/media/")) {
-    const localPath = path.join(MEDIA_DIR, path.basename(entry.mediaPath));
-    if (fs.existsSync(localPath)) {
-      try {
-        updates.mediaPath = await uploadMedia(localPath, base);
-        log("upload", `raw → Cloudinary`);
-      } catch (e) { logErr("upload", "raw failed:", e.message); }
-    }
-  }
-
-  // All derived artifacts
+  // Upload processed artifacts first
   const fieldMap = {
     posterPath: { ext: ".poster.jpg", type: "image" },
     compressedPath: { ext: ".min.mp4", type: "video" },
@@ -127,6 +116,17 @@ async function uploadAll(entry, artifacts) {
         if (url) updates[field] = url;
         log("upload", `${field} → Cloudinary`);
       } catch (e) { logErr("upload", `${field} failed:`, e.message); }
+    }
+  }
+
+  // Upload raw video last
+  if (entry.mediaPath?.startsWith("/media/")) {
+    const localPath = path.join(MEDIA_DIR, path.basename(entry.mediaPath));
+    if (fs.existsSync(localPath)) {
+      try {
+        updates.mediaPath = await uploadMedia(localPath, base);
+        log("upload", `raw → Cloudinary`);
+      } catch (e) { logErr("upload", "raw failed:", e.message); }
     }
   }
 
