@@ -3,7 +3,7 @@ import { STATUS, WORKING, sentimentEmoji, timeAgo, thumbSrc } from "./lib.js";
 export default function EntryCard({ entry, onOpen, onDelete, onEdit }) {
   const st = STATUS[entry.status] || STATUS.ingested;
   const a = entry.analysis;
-  const playable = entry.mediaPath?.startsWith("/media/");
+  const playable = !!entry.mediaPath;
   const thumb = thumbSrc(entry);
   const working = WORKING.includes(entry.status);
   const ready = entry.status === "ready" && a;

@@ -112,13 +112,13 @@ export default function App() {
     return () => { document.removeEventListener("visibilitychange", resume); clearInterval(iv); };
   }, []);
 
-  const playable = entries.filter((e) => e.mediaPath?.startsWith("/media/") && e.analysis);
+  const playable = entries.filter((e) => e.mediaPath && e.analysis);
   const current = playable.length ? playable[vi % playable.length] : null;
   const { domains, avg, topArc, total } = aggregateLife(entries);
   const latest = entries[0];
   const onHome = view === "home";
   // In the reader the background plays the entry being read; elsewhere it cycles.
-  const inReader = view === "reader" && openEntry?.mediaPath?.startsWith("/media/");
+  const inReader = view === "reader" && openEntry?.mediaPath;
   const bgEntry = inReader ? openEntry : current;
   // Home + reader share one behaviour: dim (B&W) while the UI is up, clear
   // full-bleed video once idle. Flat panels hide the video entirely.
@@ -135,7 +135,7 @@ export default function App() {
       // On first load, hold the loading screen until a video has buffered so
       // playback isn't choppy/cut. No playable video → reveal immediately.
       if (!bootedRef.current) {
-        const hasVideo = list.some((e) => e.mediaPath?.startsWith("/media/") && e.analysis);
+        const hasVideo = list.some((e) => e.mediaPath && e.analysis);
         if (hasVideo) setLoadPhase("loading-video");
         else { bootedRef.current = true; setLoadPhase("ready"); }
       }
