@@ -33,7 +33,7 @@ export default function Landing({ onEnter }) {
       <header className="lp-top">
         <div className="brand">
           <span className="logo">◼</span>
-          <span className="brand-name">ENTRY</span>
+          <span className="brand-name">VISUALSPAM</span>
         </div>
         <button className="btn ghost" onClick={() => onEnter("dashboard")}>
           Enter →
@@ -188,7 +188,7 @@ export default function Landing({ onEnter }) {
       </section>
 
       <footer className="lp-foot">
-        <span className="logo">◼</span> ENTRY — record · transcribe · analyze ·
+        <span className="logo">◼</span> visualspam — record · transcribe · analyze ·
         read.
       </footer>
     </div>
