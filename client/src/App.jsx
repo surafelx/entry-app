@@ -153,12 +153,13 @@ export default function App() {
     const t = setTimeout(() => { bootedRef.current = true; setLoadPhase("ready"); }, 9000);
     return () => clearTimeout(t);
   }, [loadPhase]);
+  const statusesKey = entries.map((e) => e.status).join(",");
   useEffect(() => {
     const w = entries.some((e) => WORKING.includes(e.status));
     clearInterval(pollRef.current);
-    if (w) pollRef.current = setInterval(refresh, 2000);
+    if (w) pollRef.current = setInterval(() => refresh(), 2000);
     return () => clearInterval(pollRef.current);
-  }, [entries]);
+  }, [statusesKey]);
 
   // fetch notes
   const refreshNotes = useCallback(async () => {
