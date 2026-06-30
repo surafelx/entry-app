@@ -128,7 +128,7 @@ export default function App() {
   // behind its (frosted) panel. Other flat panels hide the video entirely.
   // NB: the modifier must not be the literal "reader" — that collides with the
   // .reader panel rules and would shrink the background to the panel width.
-  const bgMode = (onHome || inReader) ? (visible ? "dim" : "") : (inDomain ? "dim" : "off");
+  const bgMode = (onHome || inReader || view === "calendar" || view === "community") ? (visible ? "dim" : "") : (inDomain ? "dim" : "off");
 
   async function refresh() {
     if (!bootedRef.current) setLoadPhase((p) => (p === "connecting" ? "fetching" : p));
@@ -409,26 +409,79 @@ export default function App() {
           )}
 
           {view === "community" && (
-            <div className="v-panel notes-panel">
-              <ViewHead title="People" onBack={() => go("home")} />
-              <div className="notes-input-row">
-                <input
-                  className="notes-input"
-                  placeholder="say anything..."
-                  value={noteText}
-                  onChange={(e) => setNoteText(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") submitNote(); }}
-                />
-                <button className="notes-send" onClick={submitNote}>→</button>
+            <div className="v-panel life-panel">
+              <ViewHead title="life" onBack={() => go("home")} />
+
+              {/* Summary stats */}
+              <div className="life-stats">
+                <div className="life-stat">
+                  <span className="life-stat-val">{total}</span>
+                  <span className="life-stat-label">moments</span>
+                </div>
+                <div className="life-stat">
+                  <span className="life-stat-val">{domains.length}</span>
+                  <span className="life-stat-label">domains</span>
+                </div>
+                <div className="life-stat">
+                  <span className="life-stat-val">{avg > 0 ? "+" : ""}{(avg * 100).toFixed(0)}%</span>
+                  <span className="life-stat-label">mood</span>
+                </div>
+                <div className="life-stat">
+                  <span className="life-stat-val">{topArc || "—"}</span>
+                  <span className="life-stat-label">arc</span>
+                </div>
               </div>
-              <div className="notes-list">
-                {notes.map((n) => (
-                  <div key={n._id} className="note-item">
-                    <span className="note-text">{n.text}</span>
-                    <span className="note-time">{timeAgo(n.createdAt)}</span>
-                  </div>
-                ))}
-                {notes.length === 0 && <p className="notes-empty">nothing yet. be the first.</p>}
+
+              {/* Domain cards */}
+              <div className="life-domains">
+                {domains.map(({ domain, notes }) => {
+                  const latest = notes[0];
+                  const a = latest?.analysis;
+                  const mood = a?.sentiment > 0.25 ? "😊" : a?.sentiment < -0.25 ? "😔" : "😐";
+                  const recentTopics = a?.topics?.slice(0, 3) || [];
+                  return (
+                    <button key={domain} className="life-domain" onClick={() => openDomain(domain, notes)}>
+                      <div className="ld-top">
+                        <span className="ld-name">{domain}</span>
+                        <span className="ld-count">{notes.length}</span>
+                      </div>
+                      {a?.standing && <p className="ld-standing">{a.standing}</p>}
+                      <div className="ld-meta">
+                        {mood && <span className="ld-mood">{mood}</span>}
+                        {recentTopics.length > 0 && (
+                          <span className="ld-topics">{recentTopics.map(t => `#${t}`).join(" ")}</span>
+                        )}
+                      </div>
+                      <div className="ld-bar">
+                        {notes.slice(0, 7).reverse().map((n, i) => (
+                          <span key={i} className="ld-dot" style={{
+                            background: (n.analysis?.sentiment || 0) > 0.25 ? "var(--green)" :
+                              (n.analysis?.sentiment || 0) < -0.25 ? "var(--accent)" : "var(--muted)"
+                          }} />
+                        ))}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Recent entries */}
+              <div className="life-recent">
+                <span className="life-recent-title">recent</span>
+                {entries.slice(0, 5).map((e) => {
+                  const a = e.analysis;
+                  const mood = a?.sentiment > 0.25 ? "😊" : a?.sentiment < -0.25 ? "😔" : "😐";
+                  return (
+                    <button key={e._id} className="life-entry" onClick={() => e.status === "ready" && a && onOpen(e)}>
+                      {thumbSrc(e) && <img src={thumbSrc(e)} className="life-entry-thumb" alt="" />}
+                      <div className="life-entry-info">
+                        <span className="life-entry-title">{e.title || "Untitled"}</span>
+                        <span className="life-entry-meta">{timeAgo(e.recordedAt)} · {e.durationSec ? `${e.durationSec}s` : ""}</span>
+                      </div>
+                      {mood && <span className="life-entry-mood">{mood}</span>}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}

@@ -6,6 +6,7 @@
 
 import { Bot, InputFile } from "grammy";
 import fs from "node:fs";
+import { execSync } from "node:child_process";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import Entry from "./models/Entry.js";
@@ -214,11 +215,28 @@ export function startBot() {
     await ctx.reply(`downloading ${sourceLabel}...`);
     try {
       const entry = await ingestFile(ctx, file, title);
-      const msg = await ctx.reply(
-        `downloaded: ${entry.title || "(untitled)"}\n\npick effects to apply:`,
-        { reply_markup: EFFECT_KEYBOARD }
-      );
-      pending.set(ctx.chat.id, { entry, msgId: msg.message_id });
+      const mediaPath = path.join(MEDIA_DIR, path.basename(entry.mediaPath));
+
+      // Extract first frame for preview
+      let previewPath = null;
+      try {
+        previewPath = `/tmp/preview_${entry._id}.jpg`;
+        execSync(`ffmpeg -y -i "${mediaPath}" -frames:v 1 -vf "scale=480:-2" -q:v 4 "${previewPath}"`, { timeout: 10000 });
+      } catch { previewPath = null; }
+
+      const caption = `downloaded: ${entry.title || "(untitled)"}\n\npick effects to apply:`;
+
+      if (previewPath && fs.existsSync(previewPath)) {
+        await ctx.replyWithPhoto(new InputFile(previewPath), {
+          caption,
+          reply_markup: EFFECT_KEYBOARD,
+        });
+        fs.unlinkSync(previewPath);
+      } else {
+        await ctx.reply(caption, { reply_markup: EFFECT_KEYBOARD });
+      }
+
+      pending.set(ctx.chat.id, { entry });
     } catch (e) {
       log("error", `${sourceLabel} handler failed:`, e.message);
       await ctx.reply(`error: ${e.message}`);
