@@ -16,7 +16,7 @@ import { uploadMedia, uploadImage, tmpPath, cleanupTmp } from "./cloudinary.js";
 const log = (tag, ...args) => console.log(`[pipeline:${tag}]`, ...args);
 const logErr = (tag, ...args) => console.error(`[pipeline:${tag}]`, ...args);
 
-// Resolve local input file
+// Resolve local input file — also tries matching by filename if mediaPath is a Cloudinary URL
 async function resolveInput(mediaPath) {
   if (!mediaPath) return null;
   if (mediaPath.startsWith("/media/")) {
@@ -24,6 +24,15 @@ async function resolveInput(mediaPath) {
     const local = path.join(MEDIA_DIR, name);
     if (fs.existsSync(local)) return { name, input: local, local: true };
     return null;
+  }
+  // Cloudinary URL — look for matching local file by timestamp prefix
+  const match = mediaPath.match(/\/(\d{13}-[a-f0-9]+)/);
+  if (match) {
+    const localFiles = fs.readdirSync(MEDIA_DIR);
+    const localFile = localFiles.find(f => f.startsWith(match[1]) && !f.includes(".min.") && !f.includes(".audio.") && !f.includes(".poster.") && !f.includes(".dither.") && !f.includes(".retro.") && !f.includes(".cartoon."));
+    if (localFile) {
+      return { name: localFile, input: path.join(MEDIA_DIR, localFile), local: true };
+    }
   }
   return null;
 }
