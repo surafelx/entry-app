@@ -382,13 +382,11 @@ export default function App() {
               {domains.length > 0 && (
                 <div className="dom-scatter">
                   {domains.slice(0, 8).map(({ domain, notes }, i) => {
-                    const rot = ((domain.charCodeAt(0) * 3 + i * 17) % 25) - 12;
-                    const x = ((domain.charCodeAt(0) * 11 + i * 43) % 160) - 80;
-                    const y = ((domain.charCodeAt(Math.min(1, domain.length - 1)) * 9 + i * 29) % 100) - 50;
+                    const rot = ((domain.charCodeAt(0) * 3 + i * 17) % 15) - 7;
                     return (
                       <button key={domain} className="dom-word" style={{
-                        transform: `translate(${x}px, ${y}px) rotate(${rot}deg)`,
-                        animationDelay: `${i * 1.6}s`,
+                        transform: `rotate(${rot}deg)`,
+                        animationDelay: `${i * 2}s`,
                       }} onClick={() => openDomain(domain, notes)}>
                         {domain}<sup>{notes.length}</sup>
                       </button>
