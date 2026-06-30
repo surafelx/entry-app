@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { listFeedback, submitFeedback } from "./api.js";
+import { listFeedback, submitFeedback, getBotStatus } from "./api.js";
 
 function timeAgo(date) {
   const s = Math.floor((Date.now() - new Date(date)) / 1000);
@@ -21,6 +21,7 @@ export default function Community() {
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(true);
   const [posting, setPosting] = useState(false);
+  const [botRunning, setBotRunning] = useState(false);
   const inputRef = useRef(null);
 
   useEffect(() => {
@@ -28,6 +29,7 @@ export default function Community() {
       .then(setComments)
       .catch(() => {})
       .finally(() => setLoading(false));
+    getBotStatus().then((s) => setBotRunning(s.running)).catch(() => {});
   }, []);
 
   const post = async () => {
@@ -51,6 +53,10 @@ export default function Community() {
 
   return (
     <div className="comment-board">
+      <div className="bot-status">
+        <span className={`bot-dot ${botRunning ? "on" : ""}`} />
+        <span className="bot-label">telegram bot {botRunning ? "online" : "offline"}</span>
+      </div>
       <div className="comment-input-wrap">
         <div className="comment-input-box">
           <textarea

@@ -95,3 +95,5 @@ export const createNote = (text) =>
 export const listFeedback = () => request("/feedback");
 export const submitFeedback = (text) =>
   request("/feedback", { method: "POST", body: JSON.stringify({ text }) });
+
+export const getBotStatus = () => request("/bot-status");

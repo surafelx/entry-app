@@ -65,6 +65,7 @@ app.use("/media", (req, res, next) => {
 }, express.static(MEDIA_DIR));
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
+app.get("/api/bot-status", (_req, res) => res.json({ running: !!process.env.TELEGRAM_BOT_TOKEN }));
 app.use("/api/entries", entriesRouter);
 app.use("/api/livekit", livekitRouter);
 app.use("/api/notes", notesRouter);
