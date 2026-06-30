@@ -79,7 +79,7 @@ export default function App() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadPhase, setLoadPhase] = useState("connecting"); // connecting | fetching | loading-video | ready
-  const [view, setView] = useState("home"); // home|record|calendar|community|live|reader|edit
+  const [view, setView] = useState("home"); // home|record|calendar|community|visuals|reader|edit
   const [openEntry, setOpenEntry] = useState(null);
   const [focusDomain, setFocusDomain] = useState(null); // life-section to lead with in the reader
   const [domainData, setDomainData] = useState(null); // { domain, notes } for domain card view
@@ -491,6 +491,12 @@ export default function App() {
             <DomainCard domain={domainData.domain} notes={domainData.notes} onOpen={onOpen} onBack={() => go("home")} />
           )}
 
+          {view === "visuals" && (
+            <div className="v-panel">
+              <Visuals entries={entries} onBack={() => go("home")} />
+            </div>
+          )}
+
           {view === "reader" && openEntry && (
             <Reader
               entry={openEntry} seg={seg} segments={segments} page={page}
@@ -509,13 +515,17 @@ export default function App() {
               <span className="nav-label">{n.label}</span>
             </button>
           ))}
+          <button className={`nav-item ${view === "visuals" ? "on" : ""}`}
+            onClick={() => go("visuals")} title="insights">
+            <svg className="nav-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 3v18h18"/><path d="M7 16l4-5 4 3 5-7"/>
+            </svg>
+            <span className="nav-label">insights</span>
+          </button>
         </nav>
 
         {/* music — fixed top-right corner */}
         <MusicPicker musicGenre={musicGenre} cycleMusic={cycleMusic} musicOpen={musicOpen} setMusicOpen={setMusicOpen} />
-
-        {/* visual insights — fixed bottom-right */}
-        <Visuals entries={entries} />
       </div>
 
       {error && <div className="toast">{error}</div>}
