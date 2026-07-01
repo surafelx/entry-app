@@ -90,6 +90,7 @@ export default function App() {
   const [page, setPage] = useState(0); // reader transcript page
   const [vi, setVi] = useState(0); // bg video index
   const [visible, setVisible] = useState(true);
+  const [watching, setWatching] = useState(false); // reader "watch mode": clear video, panel hidden, sound on
   const [musicGenre, setMusicGenre] = useState(null); // null=off, or "chill"|"dark"|"intense"|"dreamy"
   const [soundReady, setSoundReady] = useState(false); // bg video audio unlocked
   const [vidReady, setVidReady] = useState(false); // bg video loaded enough to play
@@ -133,7 +134,10 @@ export default function App() {
   // behind its (frosted) panel. Other flat panels hide the video entirely.
   // NB: the modifier must not be the literal "reader" — that collides with the
   // .reader panel rules and would shrink the background to the panel width.
-  const bgMode = (onHome || inReader || view === "calendar" || view === "community" || view === "goals" || view === "goal") ? (visible ? "dim" : "") : (inDomain ? "dim" : "off");
+  // Watch mode in the reader = full clear video, no dim.
+  const bgMode = (watching && inReader)
+    ? ""
+    : (onHome || inReader || view === "calendar" || view === "community" || view === "goals" || view === "goal") ? (visible ? "dim" : "") : (inDomain ? "dim" : "off");
 
   async function refresh() {
     if (!bootedRef.current) setLoadPhase((p) => (p === "connecting" ? "fetching" : p));
@@ -253,7 +257,7 @@ export default function App() {
   }, [wake]);
   // Auto-hide the UI on home AND in the reader (mouse-move wakes it); other
   // panels (record/calendar/community) stay visible.
-  const uiShown = visible || (!onHome && !inReader);
+  const uiShown = !watching && (visible || (!onHome && !inReader));
 
   // ── open an entry inline as the reader (optionally focused on a domain) ──
   function scrollToTop() { stageRef.current?.scrollTo({ top: 0, behavior: "instant" }); }
@@ -277,7 +281,7 @@ export default function App() {
     scrollToTop();
     try { setGoalData(await getGoal(id)); } catch {}
   }
-  function go(v) { setView(v); setOpenEntry(null); setFocusDomain(null); setDomainData(null); setGoalData(null); scrollToTop(); }
+  function go(v) { setView(v); setOpenEntry(null); setFocusDomain(null); setDomainData(null); setGoalData(null); setWatching(false); scrollToTop(); }
 
   async function onDelete(id) {
     setEntries((p) => p.filter((e) => e._id !== id));
@@ -368,6 +372,13 @@ export default function App() {
       <div className="grain" />
       <div className="glitch-line" />
 
+      {/* watch mode — full-screen clip, tap anywhere to return to reading */}
+      {watching && inReader && (
+        <div className="watch-exit" onClick={() => setWatching(false)}>
+          <span className="watch-exit-hint">tap to return</span>
+        </div>
+      )}
+
       {/* shell — no header; nav lives in a minimal floating dock */}
       <div className={`shell ${uiShown ? "show" : ""}`}>
         {/* inline stage — content changes right here */}
@@ -444,6 +455,7 @@ export default function App() {
               entry={openEntry} seg={seg} segments={segments} page={page}
               focusDomain={focusDomain}
               onPage={setPage} onSeek={seekTo} onBack={() => go("home")}
+              onWatch={() => { setWatching(true); initAudio(); }}
             />
           )}
         </main>
@@ -741,7 +753,7 @@ function MusicPicker({ musicGenre, cycleMusic, musicOpen, setMusicOpen }) {
 }
 
 // ── Inline reader: live-captioned video + tap-to-seek transcript + insights ──
-function Reader({ entry, seg, segments, page, focusDomain, onPage, onSeek, onBack }) {
+function Reader({ entry, seg, segments, page, focusDomain, onPage, onSeek, onBack, onWatch }) {
   const a = entry.analysis || {};
   const jump = (i) => { onPage(i); onSeek(segments[i]?.startSec); };
   // When opened from a home domain word, lead with that life-section so the
@@ -756,6 +768,9 @@ function Reader({ entry, seg, segments, page, focusDomain, onPage, onSeek, onBac
     <div className="reader">
       <div className="reader-head">
         <button className="back-btn" onClick={onBack}>← back</button>
+        {entry.mediaPath && (
+          <button className="watch-btn" onClick={onWatch}>▶ watch video</button>
+        )}
       </div>
 
       <div className="reader-grid">

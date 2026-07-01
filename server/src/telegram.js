@@ -262,8 +262,10 @@ export function startBot() {
   });
 
   async function handleMedia(ctx, file, title, sourceLabel) {
-    await ctx.reply(`downloading ${sourceLabel}...`);
+    log("handle", `${sourceLabel} received from user=${ctx.from?.id}`);
     try {
+      await ctx.reply(`downloading ${sourceLabel}...`);
+      log("handle", "reply sent: downloading");
       const entry = await ingestFile(ctx, file, title);
       const mediaPath = path.join(MEDIA_DIR, path.basename(entry.mediaPath));
 
@@ -277,20 +279,15 @@ export function startBot() {
       const caption = `downloaded: ${entry.title || "(untitled)"}\n\ntap to toggle effects, then ✅ apply — or 🎲 surprise:`;
       const keyboard = effectKeyboard(new Set());
 
-      if (previewPath && fs.existsSync(previewPath)) {
-        await ctx.replyWithPhoto(new InputFile(previewPath), {
-          caption,
-          reply_markup: keyboard,
-        });
-        fs.unlinkSync(previewPath);
-      } else {
-        await ctx.reply(caption, { reply_markup: keyboard });
-      }
+      log("handle", "sending effect keyboard...");
+      await ctx.reply(caption, { reply_markup: keyboard });
+      log("handle", "effect keyboard sent successfully");
+      if (previewPath && fs.existsSync(previewPath)) fs.unlinkSync(previewPath);
 
       pending.set(ctx.chat.id, { entry, selected: new Set() });
     } catch (e) {
       log("error", `${sourceLabel} handler failed:`, e.message);
-      await ctx.reply(`error: ${e.message}`);
+      try { await ctx.reply(`error: ${e.message}`); } catch {}
     }
   }
 
