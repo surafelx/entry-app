@@ -6,10 +6,10 @@ import Analysis from "./models/Analysis.js";
 import Segment from "./models/Segment.js";
 import { analyzeTranscript } from "./analyze.js";
 import {
-  ffmpegAvailable, compress, extractAudio, pixelDither, cartoonifyRetro,
-  cartoonify, pixelArt, glitch, bw, vhs,
-  extractFrames, extractPoster, getDuration, probe,
+  ffmpegAvailable, compress, extractAudio,
+  extractFrames, extractPoster, getDuration,
 } from "./media.js";
+import { EFFECTS, EFFECT_KEYS } from "./effects.js";
 import { whisperAvailable, transcribe } from "./transcribe.js";
 import { extractAudioFeatures, analyzeVoiceEmotion } from "./voiceAnalysis.js";
 import { analyzeImage } from "./imageAnalysis.js";
@@ -28,11 +28,16 @@ async function resolveInput(mediaPath) {
     if (fs.existsSync(local)) return { name, input: local, local: true };
     return null;
   }
-  // Cloudinary URL — look for matching local file by timestamp prefix
+  // Cloudinary URL — look for the raw local source by id. The original is
+  // `<id>.<ext>` (single extension); every artifact/effect adds an infix
+  // (`<id>.min.mp4`, `<id>.retro.mp4`, …), so match exactly one dot-segment.
   const match = mediaPath.match(/\/(\d{13}-[a-f0-9]+)/);
   if (match) {
     const localFiles = fs.readdirSync(MEDIA_DIR);
-    const localFile = localFiles.find(f => f.startsWith(match[1]) && !f.includes(".min.") && !f.includes(".audio.") && !f.includes(".poster.") && !f.includes(".dither.") && !f.includes(".retro.") && !f.includes(".cartoon."));
+    const localFile = localFiles.find((f) => {
+      const m = f.match(/^(\d{13}-[a-f0-9]+)\.[^.]+$/);
+      return m && m[1] === match[1];
+    });
     if (localFile) {
       return { name: localFile, input: path.join(MEDIA_DIR, localFile), local: true };
     }
@@ -74,76 +79,22 @@ async function processLocally(entry, opts = {}) {
   if (compResult.status === "fulfilled") artifacts.compressedPath = `/media/${base}.min.mp4`;
   if (audioResult.status === "fulfilled") artifacts.audioPath = `/media/${base}.audio.mp3`;
 
-  // Decorative — user-selected or random pick 1-2
-  const allEffects = ["dither", "retro", "pixel", "cartoon", "glitch", "bw", "vhs"];
-  const picked = opts.effects?.length
-    ? opts.effects.filter(e => allEffects.includes(e))
-    : allEffects.sort(() => Math.random() - 0.5).slice(0, 1 + Math.floor(Math.random() * 2));
-  log("local", `picked effects: ${picked.join(", ")}`);
+  // Decorative effects. An explicit array (from the bot) is honored exactly —
+  // including an empty array, which means "skip decorative effects". When no
+  // array is given (web/livekit ingestion) we pick a random 1-2 surprise.
+  const picked = Array.isArray(opts.effects)
+    ? opts.effects.filter((e) => EFFECT_KEYS.includes(e))
+    : [...EFFECT_KEYS].sort(() => Math.random() - 0.5).slice(0, 1 + Math.floor(Math.random() * 2));
+  log("local", `picked effects: ${picked.join(", ") || "(none)"}`);
 
-  if (picked.includes("dither")) {
+  for (const key of picked) {
+    const { fn, field, ext, opts: fxOpts } = EFFECTS[key];
+    const out = path.join(MEDIA_DIR, `${base}${ext}`);
     try {
-      const ditherOut = path.join(MEDIA_DIR, `${base}.dither.webp`);
-      await pixelDither(src.input, ditherOut, {
-        width: 200, up: 480, fps: 12, colors: 48, bayer: 3, quality: 75,
-      });
-      artifacts.ditherPath = `/media/${base}.dither.webp`;
-      log("local", `dither → ${base}.dither.webp`);
-    } catch (e) { logErr("local", "dither failed:", e.message); }
-  }
-
-  if (picked.includes("retro")) {
-    try {
-      const retroOut = path.join(MEDIA_DIR, `${base}.retro.mp4`);
-      await cartoonifyRetro(src.input, retroOut, { height: 360, fps: 24, crf: 28, preset: "fast" });
-      artifacts.retroPath = `/media/${base}.retro.mp4`;
-      log("local", `retro → ${base}.retro.mp4`);
-    } catch (e) { logErr("local", "retro failed:", e.message); }
-  }
-
-  if (picked.includes("pixel")) {
-    try {
-      const pixelOut = path.join(MEDIA_DIR, `${base}.pixel.mp4`);
-      await pixelArt(src.input, pixelOut, { blocks: 96, up: 480, fps: 15, crf: 30 });
-      artifacts.pixelPath = `/media/${base}.pixel.mp4`;
-      log("local", `pixel → ${base}.pixel.mp4`);
-    } catch (e) { logErr("local", "pixel failed:", e.message); }
-  }
-
-  if (picked.includes("cartoon")) {
-    try {
-      const cartoonOut = path.join(MEDIA_DIR, `${base}.cartoon.mp4`);
-      await cartoonify(src.input, cartoonOut, { height: 480, fps: 24, crf: 30, preset: "fast" });
-      artifacts.cartoonPath = `/media/${base}.cartoon.mp4`;
-      log("local", `cartoon → ${base}.cartoon.mp4`);
-    } catch (e) { logErr("local", "cartoon failed:", e.message); }
-  }
-
-  if (picked.includes("glitch")) {
-    try {
-      const glitchOut = path.join(MEDIA_DIR, `${base}.glitch.mp4`);
-      await glitch(src.input, glitchOut, { height: 480, fps: 24, crf: 28, preset: "fast" });
-      artifacts.glitchPath = `/media/${base}.glitch.mp4`;
-      log("local", `glitch → ${base}.glitch.mp4`);
-    } catch (e) { logErr("local", "glitch failed:", e.message); }
-  }
-
-  if (picked.includes("bw")) {
-    try {
-      const bwOut = path.join(MEDIA_DIR, `${base}.bw.mp4`);
-      await bw(src.input, bwOut, { height: 480, fps: 24, crf: 28, preset: "fast" });
-      artifacts.bwPath = `/media/${base}.bw.mp4`;
-      log("local", `bw → ${base}.bw.mp4`);
-    } catch (e) { logErr("local", "bw failed:", e.message); }
-  }
-
-  if (picked.includes("vhs")) {
-    try {
-      const vhsOut = path.join(MEDIA_DIR, `${base}.vhs.mp4`);
-      await vhs(src.input, vhsOut, { height: 480, fps: 24, crf: 30, preset: "fast" });
-      artifacts.vhsPath = `/media/${base}.vhs.mp4`;
-      log("local", `vhs → ${base}.vhs.mp4`);
-    } catch (e) { logErr("local", "vhs failed:", e.message); }
+      await fn(src.input, out, fxOpts);
+      artifacts[field] = `/media/${base}${ext}`;
+      log("local", `${key} → ${base}${ext}`);
+    } catch (e) { logErr("local", `${key} failed:`, e.message); }
   }
 
   return artifacts;
@@ -155,19 +106,15 @@ async function uploadAll(entry, artifacts) {
   const base = entry.mediaPath?.match(/\/([^/]+)$/)?.[1]?.replace(/\.[^.]+$/, "");
   if (!base) return updates;
 
-  // Upload processed artifacts first
+  // Always-produced artifacts + every effect output (from the registry).
   const fieldMap = {
     posterPath: { ext: ".poster.jpg", type: "image" },
     compressedPath: { ext: ".min.mp4", type: "video" },
     audioPath: { ext: ".audio.mp3", type: "video" },
-    ditherPath: { ext: ".dither.webp", type: "video" },
-    retroPath: { ext: ".retro.mp4", type: "video" },
-    pixelPath: { ext: ".pixel.mp4", type: "video" },
-    cartoonPath: { ext: ".cartoon.mp4", type: "video" },
-    glitchPath: { ext: ".glitch.mp4", type: "video" },
-    bwPath: { ext: ".bw.mp4", type: "video" },
-    vhsPath: { ext: ".vhs.mp4", type: "video" },
   };
+  for (const { field, ext, type } of Object.values(EFFECTS)) {
+    fieldMap[field] = { ext, type };
+  }
 
   for (const [field, { ext, type }] of Object.entries(fieldMap)) {
     const localPath = path.join(MEDIA_DIR, `${base}${ext}`);
@@ -315,6 +262,7 @@ export async function runPipeline(entryId, transcriptText, clientFrames = [], op
         ideas: a.ideas, identity: a.identity, quotes: a.quotes,
         followUps: a.followUps, lifeSections, standing: a.standing,
         visual: a.visual, patterns: a.patterns || [], growth: a.growth || "",
+        nextStep: a.nextStep || "", goalReflections: a.goalReflections || [],
         raw: a.raw,
         ...(audioFeatures && { audioFeatures }),
         ...(voiceEmotion && { voiceEmotion }),
@@ -322,7 +270,9 @@ export async function runPipeline(entryId, transcriptText, clientFrames = [], op
       },
       { upsert: true }
     );
-    log("analyze", `saved analysis (sentiment=${a.sentiment}, ${a.topics?.length || 0} topics)`);
+    // Link the entry to the goals this analysis touched.
+    await Entry.findByIdAndUpdate(entryId, { goals: a.linkedGoalIds || [] });
+    log("analyze", `saved analysis (sentiment=${a.sentiment}, ${a.topics?.length || 0} topics, ${a.linkedGoalIds?.length || 0} goals)`);
 
     // ── Step 4: Upload everything to Cloudinary ──
     send("uploading to cloud...");

@@ -229,9 +229,9 @@ export async function getDuration(input) {
   });
 }
 
-// 7. Cartoonify — absurd, melted cartoon look: massive saturation + contrast,
-//    crushed to a tiny grid (chunky pixels), reduced to a ~14-colour palette and
-//    Smooth cartoon: bold outlines + vivid colours, upscaled cleanly (no pixel grid).
+// 7. Cartoonify — vivid comic look: bold black outlines over saturated, posterized
+//    colour. Tuned so the outlines read clearly without crushing the whole image
+//    (the old multiply-at-full-opacity darkened everything to mud).
 export async function cartoonify(input, output, o = {}) {
   const {
     height = 640, fps = 24, crf = 30, preset = "fast",
@@ -241,18 +241,23 @@ export async function cartoonify(input, output, o = {}) {
     "-i", input,
     "-filter_complex",
     `[0:v]fps=${fps},scale=-2:${height},` +
-      // extreme colour: saturation 8×, contrast 3×, hue rotation for comic palette
-      `eq=saturation=8.0:contrast=3.0:brightness=0.02:gamma=1.3,` +
-      `hue=h=15:s=2.0,` +
-      `unsharp=5:5:4.0:5:5:2.0,` +
-      // heavy colour push — reds/blues boosted, greens muted
-      `colorbalance=rs=0.45:gs=-0.15:bs=0.45:rm=0.35:gm=-0.1:bm=0.35,` +
-      // crush shadows, punch highlights — comic-book contrast
-      `curves=all='0/0 0.15/0.22 0.45/0.75 0.75/0.95 1/1',` +
-      `split[main][edsrc];` +
-      // edge map → invert for BLACK outlines, boost contrast
-      `[edsrc]edgedetect=low=0.03:high=0.12,negate,eq=contrast=2.5[ed];` +
-      `[main][ed]blend=all_mode=multiply[out]`,
+      // punchy but not blown-out colour (was saturation=8, contrast=3 → muddy)
+      `eq=saturation=4.5:contrast=1.6:brightness=0.02:gamma=1.1,` +
+      `hue=h=8:s=1.3,` +
+      // flatten into comic bands, then sharpen the boundaries
+      `smartblur=lr=2.0:ls=-0.4,` +
+      `unsharp=5:5:1.5:5:5:0.6,` +
+      // gentle reds/blues push
+      `colorbalance=rs=0.20:gs=-0.06:bs=0.20:rm=0.15:gm=-0.04:bm=0.15,` +
+      // lift shadows a touch so multiplied outlines don't crush to black
+      `curves=all='0/0.04 0.2/0.28 0.5/0.72 0.8/0.94 1/1',` +
+      // RGB before split so the multiply blend stays per-channel (YUV multiply
+      // corrupts chroma)
+      `format=gbrp,split[main][edsrc];` +
+      // edge map → invert for BLACK outlines
+      `[edsrc]edgedetect=low=0.06:high=0.18,negate,eq=contrast=2.0[ed];` +
+      // partial-opacity multiply keeps colour bright, lines bold
+      `[main][ed]blend=all_mode=multiply:all_opacity=0.75[out]`,
     "-map", "[out]", "-map", "0:a?",
     "-c:v", "libx264", "-preset", preset, "-crf", String(crf), "-pix_fmt", "yuv420p",
     "-c:a", "copy",
@@ -262,29 +267,25 @@ export async function cartoonify(input, output, o = {}) {
   return (await stat(output)).size;
 }
 
-// 8. Glitch — VHS tracking errors, chromatic aberration, scan lines
+// 8. Glitch — real chromatic aberration (rgbashift actually offsets the red/blue
+//    planes in space) plus scan lines, digital noise and a slight edge shake.
 export async function glitch(input, output, o = {}) {
   const { height = 480, fps = 24, crf = 28, preset = "fast" } = o;
   await ff([
     ...range(o),
     "-i", input,
-    "-filter_complex",
-    `[0:v]fps=${fps},scale=-2:${height},` +
-      // chromatic aberration — split RGB and offset
-      `split[r][g][b];` +
-      `[r]colorchannelmixer=1:0:0:0:0:0:0:0:0:0:0:0:0:0:0[r];` +
-      `[g]colorchannelmixer=0:0:0:0:0:1:0:0:0:0:0:0:0:0:0[g];` +
-      `[b]colorchannelmixer=0:0:0:0:0:0:0:0:0:0:0:1:0:0:0[b];` +
-      `[r][g]blend=all_mode=addition:all_opacity=0.5[rg];` +
-      `[rg][b]blend=all_mode=addition:all_opacity=0.5[chromatic];` +
-      `[chromatic]eq=brightness=0.02:contrast=1.1:saturation=1.3,` +
+    "-vf",
+    `fps=${fps},scale=-2:${height},` +
+      // true chromatic aberration: shift red left, blue right
+      `rgbashift=rh=-6:bh=6:rv=2:bv=-2,` +
+      `eq=brightness=0.02:contrast=1.12:saturation=1.35,` +
       // scan lines
       `drawgrid=width=2:height=2:thickness=1:color=black@0.15,` +
-      // noise + slight shake
-      `noise=c0s=20:c0f=t+u,` +
+      // digital noise (dialed down from c0s=20) + slight horizontal shake
+      `noise=c0s=10:c0f=t+u,` +
       `crop=in_w-4:in_h:2,` +
-      `eq=gamma=0.95[out]`,
-    "-map", "[out]", "-map", "0:a?",
+      `eq=gamma=0.95`,
+    "-map", "0:v", "-map", "0:a?",
     "-c:v", "libx264", "-preset", preset, "-crf", String(crf), "-pix_fmt", "yuv420p",
     "-c:a", "copy",
     "-movflags", "+faststart",
@@ -302,8 +303,11 @@ export async function bw(input, output, o = {}) {
     "-vf",
     `fps=${fps},scale=-2:${height},` +
       `hue=s=0,` +
-      `eq=contrast=1.5:brightness=0.03:gamma=1.2,` +
-      `unsharp=5:5:1.5:5:5:0.8`,
+      // film-noir contrast + crushed blacks, soft vignette
+      `eq=contrast=1.65:brightness=0.02:gamma=1.15,` +
+      `curves=all='0/0 0.2/0.14 0.5/0.55 0.8/0.9 1/1',` +
+      `unsharp=5:5:1.5:5:5:0.8,` +
+      `vignette=PI/6`,
     "-c:v", "libx264", "-preset", preset, "-crf", String(crf), "-pix_fmt", "yuv420p",
     "-an",
     "-movflags", "+faststart",
@@ -320,15 +324,17 @@ export async function vhs(input, output, o = {}) {
     "-i", input,
     "-filter_complex",
     `[0:v]fps=${fps},scale=-2:${height},` +
-      // warm colour shift + desaturate slightly
-      `eq=saturation=0.7:contrast=1.15:brightness=0.04:gamma=1.05,` +
+      // warm colour shift + desaturate slightly (brighter than before)
+      `eq=saturation=0.72:contrast=1.12:brightness=0.09:gamma=1.08,` +
       `colorbalance=rs=0.2:gs=0.08:bs=-0.1:rm=0.15:gm=0.05:bm=-0.08,` +
       `hue=h=5:s=0.9,` +
-      // tracking noise
-      `noise=c0s=15:c0f=t+u,` +
+      // tracking noise (softened from c0s=15) + subtle horizontal smear
+      `noise=c0s=8:c0f=t+u,` +
+      `rgbashift=rh=2:bh=-2,` +
       // soft glow
-      `unsharp=3:3:2:3:3:1,` +
-      `vignette=PI/3:0.4[out]`,
+      `unsharp=3:3:1.6:3:3:0.8,` +
+      // lighter vignette so the subject stays visible
+      `vignette=PI/6[out]`,
     "-map", "[out]", "-map", "0:a?",
     "-c:v", "libx264", "-preset", preset, "-crf", String(crf), "-pix_fmt", "yuv420p",
     "-c:a", "copy",
@@ -348,23 +354,21 @@ export async function cartoonifyRetro(input, output, o = {}) {
     "-i", input,
     "-filter_complex",
     `[0:v]fps=${fps},scale=-2:${height},` +
-      // warm sepia base: desaturate then tint warm
-      `eq=saturation=0.4:contrast=1.2:brightness=0.05:gamma=1.1,` +
-      `colorbalance=rs=0.3:gs=0.1:bs=-0.15:rm=0.25:gm=0.08:bm=-0.12:rh=0.15:gh=0.05:bh=-0.08,` +
-      `hue=h=8:s=0.7,` +
+      // warm sepia base via the fixed sepia matrix — immune to source colour casts
+      // (the old eq+colorbalance approach turned some clips green)
+      `colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131,` +
+      `eq=contrast=1.15:brightness=0.03:saturation=0.95,` +
       // lift shadows (faded blacks) + crush midtones for that worn print look
       `curves=all='0/0.06 0.12/0.18 0.35/0.48 0.6/0.72 0.85/0.92 1/0.97',` +
       `unsharp=3:3:1.5:3:3:0.8,` +
-      // add film grain (old print texture)
-      `noise=c0s=12:c0f=t+u,` +
-      `split[main][edsrc2];` +
-      // softer edges — thicker, brownish outlines
+      // add film grain (old print texture) — softened from c0s=12.
+      // Force RGB before the split so the multiply blend runs per-RGB-channel;
+      // multiplying in YUV corrupts chroma and tinted the low-sat sepia green.
+      `noise=c0s=7:c0f=t+u,format=gbrp,split[main][edsrc2];` +
       `[edsrc2]edgedetect=low=0.05:high=0.15,` +
-      `eq=contrast=1.8:brightness=-0.05,` +
-      `colorbalance=rs=0.2:gs=0.1:bs=-0.05,` +
-      `negate[ed];` +
-      `[main][ed]blend=all_mode=multiply:all_opacity=0.7,` +
-      `vignette=PI/4:0.3[out]`,
+      `eq=contrast=1.8:brightness=-0.05,negate[ed];` +
+      `[main][ed]blend=all_mode=multiply:all_opacity=0.55,` +
+      `vignette=PI/5[out]`,
     "-map", "[out]", "-map", "0:a?",
     "-c:v", "libx264", "-preset", preset, "-crf", String(crf), "-pix_fmt", "yuv420p",
     "-c:a", "copy",
@@ -372,4 +376,158 @@ export async function cartoonifyRetro(input, output, o = {}) {
     output,
   ]);
   return (await stat(output)).size;
+}
+
+// Shared H.264 tail for the simple single-chain effects below.
+const vfEffect = (input, output, vf, o = {}, keepAudio = true) =>
+  ff([
+    ...range(o),
+    "-i", input,
+    "-vf", vf,
+    "-c:v", "libx264", "-preset", o.preset || "fast", "-crf", String(o.crf ?? 28), "-pix_fmt", "yuv420p",
+    ...(keepAudio ? ["-c:a", "copy"] : ["-an"]),
+    "-movflags", "+faststart",
+    output,
+  ]).then(() => stat(output)).then((s) => s.size);
+
+// ── ANALOG / RETRO ──────────────────────────────────────────────────────────
+
+// super-8 home movie — warm cast, film grain, gate weave, heavy vignette.
+export async function super8(input, output, o = {}) {
+  const { height = 480, fps = 24 } = o;
+  return vfEffect(input, output,
+    `fps=${fps},scale=-2:${height},` +
+      `eq=saturation=0.85:contrast=1.15:brightness=0.04:gamma=1.05,` +
+      `colorbalance=rs=0.25:gs=0.08:bs=-0.15:rm=0.2:gm=0.05:bm=-0.12,` +
+      `curves=all='0/0.05 0.3/0.35 0.7/0.78 1/0.96',` +
+      `noise=c0s=9:c0f=t+u,` +
+      // gate weave — subtly jitter the frame
+      `crop=in_w-8:in_h-8:'4+3*sin(t*18)':'4+2*cos(t*15)',` +
+      `vignette=PI/2.6`,
+    o);
+}
+
+// classic sepia — warm monochrome via the standard sepia matrix + vignette.
+export async function sepia(input, output, o = {}) {
+  const { height = 480, fps = 24 } = o;
+  return vfEffect(input, output,
+    `fps=${fps},scale=-2:${height},` +
+      `colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131,` +
+      `eq=contrast=1.1:brightness=0.03,` +
+      `vignette=PI/5`,
+    o);
+}
+
+// ── DIGITAL / CYBER ─────────────────────────────────────────────────────────
+
+// CRT monitor — scanlines, chromatic fringing, phosphor glow, tube vignette.
+export async function crt(input, output, o = {}) {
+  const { height = 480, fps = 24, crf = 28, preset = "fast" } = o;
+  await ff([
+    ...range(o),
+    "-i", input,
+    "-filter_complex",
+    `[0:v]fps=${fps},scale=-2:${height},` +
+      `rgbashift=rh=-2:bh=2,` +
+      `eq=saturation=1.15:contrast=1.15,` +
+      // horizontal scanlines
+      `drawgrid=width=iw:height=3:thickness=1:color=black@0.30,` +
+      `split[a][b];` +
+      `[a]gblur=sigma=2.5[g];` +
+      `[b][g]blend=all_mode=screen:all_opacity=0.35,` +
+      `vignette=PI/5[out]`,
+    "-map", "[out]", "-map", "0:a?",
+    "-c:v", "libx264", "-preset", preset, "-crf", String(crf), "-pix_fmt", "yuv420p",
+    "-c:a", "copy", "-movflags", "+faststart",
+    output,
+  ]);
+  return (await stat(output)).size;
+}
+
+// thermal camera — grayscale mapped through a heat-map LUT.
+export async function thermal(input, output, o = {}) {
+  const { height = 480, fps = 24 } = o;
+  return vfEffect(input, output,
+    `fps=${fps},scale=-2:${height},` +
+      `format=gray,pseudocolor=preset=turbo,` +
+      `eq=contrast=1.1:saturation=1.2`,
+    o);
+}
+
+// neon — glowing coloured outlines over a darkened base.
+export async function neon(input, output, o = {}) {
+  const { height = 480, fps = 24, crf = 28, preset = "fast" } = o;
+  await ff([
+    ...range(o),
+    "-i", input,
+    "-filter_complex",
+    `[0:v]fps=${fps},scale=-2:${height},split[base][edsrc];` +
+      `[base]eq=brightness=-0.3:saturation=0.8[dark];` +
+      `[edsrc]edgedetect=low=0.1:high=0.3:mode=colormix,` +
+      `eq=saturation=2.5:brightness=0.1,gblur=sigma=1.5[edges];` +
+      `[dark][edges]blend=all_mode=screen:all_opacity=0.9[out]`,
+    "-map", "[out]", "-map", "0:a?",
+    "-c:v", "libx264", "-preset", preset, "-crf", String(crf), "-pix_fmt", "yuv420p",
+    "-c:a", "copy", "-movflags", "+faststart",
+    output,
+  ]);
+  return (await stat(output)).size;
+}
+
+// datamosh — smeared frame-blend with colour tearing (fake datamosh look).
+export async function datamosh(input, output, o = {}) {
+  const { height = 480, fps = 24 } = o;
+  return vfEffect(input, output,
+    `fps=${fps},scale=-2:${height},` +
+      `tmix=frames=4,` +
+      `rgbashift=rh=-5:bh=5:rv=3:bv=-3,` +
+      `noise=c0s=6:c0f=t+u,` +
+      `eq=saturation=1.3:contrast=1.05`,
+    o);
+}
+
+// ── ARTISTIC / PAINTERLY ────────────────────────────────────────────────────
+
+// sketch — pencil on paper: dark edge lines on a light ground.
+export async function sketch(input, output, o = {}) {
+  const { height = 480, fps = 24 } = o;
+  return vfEffect(input, output,
+    `fps=${fps},scale=-2:${height},` +
+      `format=gray,edgedetect=low=0.1:high=0.25,negate,` +
+      `eq=contrast=1.4:brightness=0.05,` +
+      `curves=all='0/0.1 0.5/0.6 1/1'`,
+    o, false);
+}
+
+// posterize — flat comic bands with bold outlines.
+export async function posterize(input, output, o = {}) {
+  const { height = 480, fps = 24, crf = 28, preset = "fast" } = o;
+  await ff([
+    ...range(o),
+    "-i", input,
+    "-filter_complex",
+    `[0:v]fps=${fps},scale=-2:${height},` +
+      `eq=saturation=1.6:contrast=1.2,smartblur=lr=1.5,` +
+      `lutrgb=r='48*floor(val/48)':g='48*floor(val/48)':b='48*floor(val/48)',` +
+      `format=gbrp,split[m][e];` +
+      `[e]edgedetect=low=0.08:high=0.2,negate[ed];` +
+      `[m][ed]blend=all_mode=multiply:all_opacity=0.7[out]`,
+    "-map", "[out]", "-map", "0:a?",
+    "-c:v", "libx264", "-preset", preset, "-crf", String(crf), "-pix_fmt", "yuv420p",
+    "-c:a", "copy", "-movflags", "+faststart",
+    output,
+  ]);
+  return (await stat(output)).size;
+}
+
+// oil — painterly: heavy smoothing + coarse colour bands, no hard outlines.
+export async function oil(input, output, o = {}) {
+  const { height = 480, fps = 24 } = o;
+  return vfEffect(input, output,
+    `fps=${fps},scale=-2:${height},` +
+      `eq=saturation=1.45:contrast=1.08:brightness=0.02,` +
+      `smartblur=lr=4.0:ls=0.8:lt=-0.3,` +
+      `lutrgb=r='56*floor(val/56)':g='56*floor(val/56)':b='56*floor(val/56)',` +
+      `unsharp=5:5:0.8`,
+    o);
 }

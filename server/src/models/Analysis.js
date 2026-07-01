@@ -39,6 +39,17 @@ const analysisSchema = new Schema({
   visual: { type: String, default: "" }, // what the camera saw (from video frames)
   patterns: { type: [String], default: [] }, // recurring themes across entries
   growth: { type: String, default: "" }, // how this entry compares to previous ones
+  // ── Goal-aware fields ──
+  nextStep: { type: String, default: "" }, // single highest-leverage next action
+  goalReflections: {
+    type: [new Schema({
+      goal: String,                                          // goal title as seen
+      movement: { type: String, enum: ["toward", "away", "neutral"] },
+      note: String,                                          // evidence-grounded read
+      nextStep: String,                                      // step for this goal
+    }, { _id: false })],
+    default: [],
+  },
   raw: { type: Schema.Types.Mixed }, // full JSON the model returned
   // ── Voice analysis ──
   audioFeatures: {

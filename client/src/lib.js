@@ -18,7 +18,19 @@ const mediaUrl = (p) => {
   return `${API_BASE}${p}`;
 };
 
-export const playSrc = (e) => mediaUrl(e.cartoonPath || e.compressedPath || e.mediaPath);
+// Prefer an applied visual effect (nicest-looking first), then fall back to the
+// plain compressed clip and finally the raw upload. Mirrors the server's
+// DISPLAY_FIELD_ORDER (server/src/effects.js) so new effects surface in the app.
+const EFFECT_FIELDS = [
+  "retroPath", "cartoonPath", "vhsPath", "super8Path", "sepiaPath",
+  "crtPath", "neonPath", "thermalPath", "glitchPath", "datamoshPath",
+  "posterizePath", "oilPath", "sketchPath", "pixelPath",
+];
+
+export const playSrc = (e) => {
+  const fx = EFFECT_FIELDS.map((f) => e[f]).find(Boolean);
+  return mediaUrl(fx || e.compressedPath || e.mediaPath);
+};
 export const thumbSrc = (e) => mediaUrl(e.ditherPath || e.posterPath);
 
 export const sentimentEmoji = (v) =>

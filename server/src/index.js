@@ -11,6 +11,7 @@ import entriesRouter from "./routes/entries.js";
 import livekitRouter from "./routes/livekit.js";
 import notesRouter from "./routes/notes.js";
 import feedbackRouter from "./routes/feedback.js";
+import goalsRouter from "./routes/goals.js";
 import { registerChatHandlers } from "./socket/chat.js";
 import { startBot } from "./telegram.js";
 
@@ -70,6 +71,7 @@ app.use("/api/entries", entriesRouter);
 app.use("/api/livekit", livekitRouter);
 app.use("/api/notes", notesRouter);
 app.use("/api/feedback", feedbackRouter);
+app.use("/api/goals", goalsRouter);
 
 // ── Socket event handlers ────────────────────────────────────────────────
 io.on("connection", (socket) => {

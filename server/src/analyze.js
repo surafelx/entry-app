@@ -2,6 +2,7 @@ import "dotenv/config";
 import OpenAI from "openai";
 import Entry from "./models/Entry.js";
 import Analysis from "./models/Analysis.js";
+import Goal from "./models/Goal.js";
 
 // ── Config ──────────────────────────────────────────────────────────────────
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
@@ -66,11 +67,29 @@ const ANALYSIS_SCHEMA = {
       type: "string",
       description: "How this entry compares to previous ones — any shift or evolution",
     },
+    nextStep: {
+      type: "string",
+      description: "The single highest-leverage next action for this person, grounded in what they said. One concrete sentence.",
+    },
+    goalReflections: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          goal: { type: "string", description: "The exact goal title from the GOALS block this reflects on" },
+          movement: { type: "string", enum: ["toward", "away", "neutral"], description: "Did this moment move them toward or away from the goal?" },
+          note: { type: "string", description: "1-2 sentences, grounded in the transcript, on where this goal stands after this moment" },
+          nextStep: { type: "string", description: "One concrete next action for this specific goal" },
+        },
+        required: ["goal", "movement", "note", "nextStep"],
+      },
+      description: "For each active goal that this recording actually touches, a grounded reflection. Empty array if no goals were provided or none are relevant.",
+    },
   },
   required: [
     "summary", "sentiment", "trajectory", "energy", "emotions", "topics",
     "ideas", "identity", "quotes", "followUps", "lifeSections", "standing",
-    "visual", "patterns", "growth",
+    "visual", "patterns", "growth", "nextStep", "goalReflections",
   ],
   additionalProperties: false,
 };
@@ -97,6 +116,18 @@ For visual: 1–2 sentences on what the camera shows — their expression, body 
 For patterns: if memory is provided, list 2-4 themes that keep recurring. If no memory, return an empty array.
 
 For growth: if memory is provided, note any shift or evolution compared to previous entries. If no memory, return an empty string.
+
+You may also receive a GOALS section listing what this person is actively trying to achieve. When present:
+- In goalReflections, include an entry ONLY for goals this recording genuinely touches — quote or paraphrase the evidence in "note". Do not force a reflection for goals that weren't mentioned or implied.
+- Set movement to "toward" if they made or described progress, "away" if they slipped, avoided it, or lost ground, "neutral" if it came up but held steady.
+- Each goal reflection's nextStep must be a concrete, doable action — not "keep going". If GOALS is absent or nothing is relevant, return an empty array.
+
+For nextStep (top-level): the single highest-leverage thing this person should do next, grounded in what they actually said. One specific, concrete sentence — a real action they could take today, not generic advice. Always provide one.
+
+QUALITY BAR — this is the difference between useful and worthless:
+- Be specific and evidence-grounded. Every claim should trace to something they said or something visible in a frame. Never invent facts.
+- Ban generic filler ("keep pushing", "stay positive", "focus on yourself", "trust the process"). If a sentence would apply to anyone, cut it and say the specific thing instead.
+- Prefer their own words and concrete details over abstractions.
 
 IMPORTANT: Return ONLY a valid JSON object matching the schema below. No markdown, no code fences, no explanation — just the raw JSON.`;
 
@@ -137,6 +168,54 @@ ${transcript}
 
   prompt += "\n\nAnalyze this moment and draft where this person is in their life.";
   return prompt;
+}
+
+function buildGoalsBlock(goals) {
+  if (!goals?.length) return "";
+  const lines = goals.map((g, i) => {
+    const bits = [`"${g.title}"`];
+    if (g.domain) bits.push(`domain: ${g.domain}`);
+    if (g.metric) bits.push(`target: ${g.metric}`);
+    if (g.targetDate) bits.push(`by ${new Date(g.targetDate).toLocaleDateString()}`);
+    if (g.why) bits.push(`why: ${g.why}`);
+    return `  ${i + 1}. ${bits.join(" — ")}`;
+  });
+  return `\n\nGOALS — what this person is actively trying to achieve:\n${lines.join("\n")}\n\nReflect (in goalReflections) only on the goals this recording genuinely touches.`;
+}
+
+// Heuristic entry↔goal matching, used as a fallback when the model didn't
+// produce goalReflections (no API key, or it named none). Scores each goal by
+// domain match + keyword/topic/title-token overlap against the analysis.
+export function matchGoals(analysis, goals) {
+  if (!goals?.length) return [];
+  const hay = [
+    analysis?.summary, analysis?.standing,
+    ...(analysis?.topics || []),
+    ...(analysis?.lifeSections || []).map((s) => `${s.domain} ${s.summary}`),
+  ].join(" ").toLowerCase();
+  const domains = (analysis?.lifeSections || []).map((s) => (s.domain || "").toLowerCase());
+
+  return goals
+    .filter((g) => {
+      const kw = (g.keywords || []).filter((k) => k.length > 2);
+      const kwHit = kw.some((k) => hay.includes(k));
+      const domHit = g.domain &&
+        domains.some((d) => d.includes(g.domain.toLowerCase()) || g.domain.toLowerCase().includes(d));
+      return kwHit || domHit;
+    })
+    .map((g) => String(g._id));
+}
+
+// Resolve which goals an entry links to: prefer the goals the model explicitly
+// reflected on (matched by title), else fall back to the keyword heuristic.
+function linkGoals(goalReflections, analysis, goals) {
+  if (!goals?.length) return [];
+  const byTitle = new Map(goals.map((g) => [g.title.trim().toLowerCase(), String(g._id)]));
+  const named = (goalReflections || [])
+    .map((r) => byTitle.get((r.goal || "").trim().toLowerCase()))
+    .filter(Boolean);
+  if (named.length) return [...new Set(named)];
+  return matchGoals(analysis, goals);
 }
 
 function buildMemoryBlock(memoryEntries) {
@@ -182,6 +261,10 @@ export async function analyzeTranscript(transcript, meta = {}) {
 
   const memoryBlock = buildMemoryBlock(memoryEntries);
 
+  // Fetch active goals so the analysis can reflect on movement toward them
+  const goals = await Goal.find({ status: { $in: ["active", "stalled"] } }).lean();
+  const goalsBlock = buildGoalsBlock(goals);
+
   // Only send frames if model likely supports vision (skip for text-only models)
   const supportsVision = !MODEL.includes("minimax");
   const images = supportsVision ? frameBlocks(frames) : [];
@@ -193,6 +276,7 @@ export async function analyzeTranscript(transcript, meta = {}) {
       text:
         buildPrompt(text || "(no speech captured)", meta) +
         memoryBlock +
+        goalsBlock +
         (images.length
           ? `\n\n${images.length} still frame(s) from the video are attached above.`
           : ""),
@@ -219,7 +303,7 @@ export async function analyzeTranscript(transcript, meta = {}) {
             schema: ANALYSIS_SCHEMA,
           },
         },
-        max_tokens: 4000,
+        max_tokens: 5000,
         temperature: 0.7,
       });
 
@@ -244,7 +328,8 @@ export async function analyzeTranscript(transcript, meta = {}) {
       console.log("[analyze] raw response first 300 chars:", raw.slice(0, 300));
       const parsed = JSON.parse(cleaned);
       console.log(`[analyze] success on attempt ${attempt + 1} (model=${MODEL}, tokens=${response.usage?.total_tokens || "?"})`);
-      return {
+      const goalReflections = Array.isArray(parsed.goalReflections) ? parsed.goalReflections : [];
+      const result = {
         summary: parsed.summary || "",
         sentiment: clampSentiment(parsed.sentiment),
         trajectory: parsed.trajectory || "flat",
@@ -260,9 +345,15 @@ export async function analyzeTranscript(transcript, meta = {}) {
         visual: parsed.visual || "",
         patterns: parsed.patterns || [],
         growth: parsed.growth || "",
+        nextStep: parsed.nextStep || "",
+        goalReflections,
         suggestions: generateSuggestions(parsed, meta),
         raw: parsed,
       };
+      // Link goals the model reflected on (match by title), falling back to the
+      // keyword heuristic so entries still link when the model named none.
+      result.linkedGoalIds = linkGoals(goalReflections, result, goals);
+      return result;
     } catch (err) {
       const isLast = attempt === MAX_RETRIES;
       const isTransient = err.status === 429 || err.status === 502 || err.status === 503;
@@ -362,6 +453,9 @@ function heuristic(text, meta) {
     visual: (meta.frames || []).length ? "Set an OPENROUTER_API_KEY for a full visual read." : "",
     patterns: [],
     growth: "",
+    nextStep: sentences.find((s) => /\b(could|should|want to|need to|will|going to)\b/i.test(s)) || "",
+    goalReflections: [],
+    linkedGoalIds: [],
     suggestions,
     _fallback: true,
   };
@@ -384,6 +478,9 @@ function emptyAnalysis() {
     visual: "",
     patterns: [],
     growth: "",
+    nextStep: "",
+    goalReflections: [],
+    linkedGoalIds: [],
     suggestions: [],
     _empty: true,
   };

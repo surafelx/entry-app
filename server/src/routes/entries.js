@@ -9,6 +9,7 @@ import Segment from "../models/Segment.js";
 import Analysis from "../models/Analysis.js";
 import { MEDIA_DIR } from "../index.js";
 import { runPipeline } from "../pipeline.js";
+import { reanalyzeEntry } from "../reanalyze.js";
 import { uploadMedia, uploadImage, deleteMedia } from "../cloudinary.js";
 
 const router = Router();
@@ -144,6 +145,14 @@ router.post("/:id/re-edit", upload.single("media"), wrap(async (req, res) => {
   const updated = await Entry.findByIdAndUpdate(entry._id, updates, { new: true });
   runPipeline(updated._id, req.body.transcript || "", frames);
   res.json(updated);
+}));
+
+// POST /api/entries/:id/reanalyze — media-free, goal-aware re-analysis (the
+// "deepen" button). Reuses stored transcript + audio/voice/image analysis.
+router.post("/:id/reanalyze", wrap(async (req, res) => {
+  const result = await reanalyzeEntry(req.params.id);
+  if (result?.skipped) return res.status(422).json({ error: result.reason });
+  res.json(result);
 }));
 
 // POST /api/entries/:id/analyze

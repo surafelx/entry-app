@@ -27,9 +27,19 @@ const entrySchema = new Schema(
     audioPath: { type: String }, // extracted mono mp3 — the lightweight artifact
     ditherPath: { type: String }, // pixel/dithered animated webp preview
     pixelPath: { type: String }, // pixel art video
-    glitchPath: { type: String }, // VHS glitch effect
+    glitchPath: { type: String }, // chromatic-aberration glitch
     bwPath: { type: String }, // high-contrast black and white
     vhsPath: { type: String }, // warm VHS degradation
+    super8Path: { type: String }, // super-8 home movie
+    sepiaPath: { type: String }, // classic sepia
+    crtPath: { type: String }, // CRT monitor / scanlines
+    thermalPath: { type: String }, // thermal heat-map
+    neonPath: { type: String }, // neon glowing outlines
+    datamoshPath: { type: String }, // datamosh smear
+    sketchPath: { type: String }, // pencil sketch
+    posterizePath: { type: String }, // flat comic posterize
+    oilPath: { type: String }, // oil painting
+    goals: [{ type: Schema.Types.ObjectId, ref: "Goal" }], // goals this entry touches
     durationSec: { type: Number },
   },
   { timestamps: { createdAt: true, updatedAt: false } }

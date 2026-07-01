@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
-import { listEntries, getEntry, deleteEntry, listNotes, createNote } from "./api.js";
+import { listEntries, getEntry, deleteEntry, listGoals, getGoal } from "./api.js";
 import {
   WORKING, playSrc, thumbSrc, moodLabel, sentimentEmoji,
   fmtDate, fmtTime, timeAgo, aggregateLife,
 } from "./lib.js";
 import { createMusicGen } from "./music.js";
 import { createAudioFX } from "./audioFx.js";
-import Recorder from "./Recorder.jsx";
 import Visuals from "./Visuals.jsx";
 import Community from "./Community.jsx";
 
@@ -51,6 +50,7 @@ function groupByMonth(entries) {
 const STATUS_LABELS = { ingested: "Queued", transcribing: "Transcribing...", analyzing: "Analyzing...", ready: "Ready", error: "Error" };
 const NAV = [
   { id: "home", label: "home" },
+  { id: "goals", label: "goals" },
   { id: "calendar", label: "logs" },
   { id: "community", label: "people" },
 ];
@@ -68,6 +68,9 @@ function NavIcon({ id }) {
       )}
       {id === "community" && (
         <g {...p}><circle cx="9" cy="9" r="3.1" /><path d="M3.5 19.5c0-3.2 2.5-5.3 5.5-5.3s5.5 2.1 5.5 5.3" /><path d="M16 6.4a3 3 0 0 1 0 5.4" /><path d="M17.4 14.5c2.2.5 3.6 2.3 3.6 4.7" /></g>
+      )}
+      {id === "goals" && (
+        <g {...p}><circle cx="12" cy="12" r="8.2" /><circle cx="12" cy="12" r="4.4" /><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" /></g>
       )}
     </svg>
   );
@@ -93,8 +96,8 @@ export default function App() {
   const [captionText, setCaptionText] = useState(""); // live subtitle synced to playback
   const [needsTap, setNeedsTap] = useState(() => "ontouchstart" in window && !localStorage.getItem("vspam_tapdone"));
   const [musicOpen, setMusicOpen] = useState(false);
-  const [notes, setNotes] = useState([]);
-  const [noteText, setNoteText] = useState("");
+  const [goals, setGoals] = useState([]);
+  const [goalData, setGoalData] = useState(null); // { goal, entries } for goal detail view
 
   const idleRef = useRef(null);
   const pollRef = useRef(null);
@@ -130,7 +133,7 @@ export default function App() {
   // behind its (frosted) panel. Other flat panels hide the video entirely.
   // NB: the modifier must not be the literal "reader" — that collides with the
   // .reader panel rules and would shrink the background to the panel width.
-  const bgMode = (onHome || inReader || view === "calendar" || view === "community") ? (visible ? "dim" : "") : (inDomain ? "dim" : "off");
+  const bgMode = (onHome || inReader || view === "calendar" || view === "community" || view === "goals" || view === "goal") ? (visible ? "dim" : "") : (inDomain ? "dim" : "off");
 
   async function refresh() {
     if (!bootedRef.current) setLoadPhase((p) => (p === "connecting" ? "fetching" : p));
@@ -180,18 +183,11 @@ export default function App() {
     return () => clearInterval(pollRef.current);
   }, [statusesKey]);
 
-  // fetch notes
-  const refreshNotes = useCallback(async () => {
-    try { setNotes(await listNotes()); } catch {}
+  // fetch goals (with derived progress)
+  const refreshGoals = useCallback(async () => {
+    try { setGoals(await listGoals()); } catch {}
   }, []);
-  useEffect(() => { refreshNotes(); }, []);
-
-  const submitNote = useCallback(async () => {
-    const t = noteText.trim();
-    if (!t) return;
-    setNoteText("");
-    try { await createNote(t); await refreshNotes(); } catch {}
-  }, [noteText, refreshNotes]);
+  useEffect(() => { refreshGoals(); }, []);
 
   // ── audio ── music sits low under the video's own audio
   const initAudio = useCallback(() => {
@@ -275,7 +271,13 @@ export default function App() {
     setView("domain");
     scrollToTop();
   }
-  function go(v) { setView(v); setOpenEntry(null); setFocusDomain(null); setDomainData(null); scrollToTop(); }
+  async function openGoal(id) {
+    setGoalData(null);
+    setView("goal");
+    scrollToTop();
+    try { setGoalData(await getGoal(id)); } catch {}
+  }
+  function go(v) { setView(v); setOpenEntry(null); setFocusDomain(null); setDomainData(null); setGoalData(null); scrollToTop(); }
 
   async function onDelete(id) {
     setEntries((p) => p.filter((e) => e._id !== id));
@@ -407,12 +409,6 @@ export default function App() {
             </div>
           )}
 
-          {view === "record" && (
-            <div className="v-panel">
-              <ViewHead title="Record" onBack={() => go("home")} />
-              <Recorder onSaved={() => { refresh(); go("home"); }} />
-            </div>
-          )}
 
           {view === "calendar" && (
             <CalendarView entries={entries} onOpen={onOpen} loading={loading} onBack={() => go("home")} />
@@ -427,6 +423,14 @@ export default function App() {
 
           {view === "domain" && domainData && (
             <DomainCard domain={domainData.domain} notes={domainData.notes} onOpen={onOpen} onBack={() => go("home")} />
+          )}
+
+          {view === "goals" && (
+            <GoalsView goals={goals} onOpen={openGoal} onBack={() => go("home")} />
+          )}
+
+          {view === "goal" && (
+            <GoalCard data={goalData} onOpen={onOpen} onBack={() => go("goals")} />
           )}
 
           {view === "visuals" && (
@@ -550,6 +554,137 @@ function DomainCard({ domain, notes, onOpen, onBack }) {
   );
 }
 
+const goalMoodColor = (s) => (s > 0.25 ? "#22c55e" : s < -0.25 ? "#ef4444" : "#eab308");
+
+// ── Goals list: what you're pursuing, with progress + a backfill action ──
+function GoalsView({ goals, onOpen, onBack }) {
+  // Goals are managed from the backend (Telegram / CLI) — the web view is read-only.
+  return (
+    <div className="v-panel domain-card">
+      <div className="domain-top">
+        <button className="back-btn" onClick={onBack}>← back</button>
+        <div className="domain-head">
+          <h2 className="domain-title">goals</h2>
+          <span className="domain-sub">{goals.length} {goals.length === 1 ? "goal" : "goals"} · what you're moving toward</span>
+        </div>
+      </div>
+
+      {goals.length === 0 ? (
+        <p className="goal-empty">no goals yet.</p>
+      ) : (
+        <div className="goal-grid">
+          {goals.map((g) => (
+            <button key={g._id} className={`goal-card ${g.stalled ? "is-stalled" : ""}`} onClick={() => onOpen(g._id)}>
+              <div className="goal-card-top">
+                <span className={`goal-status goal-status-${g.status}`}>{g.status}</span>
+                {g.stalled && <span className="goal-stalled-badge">stalled</span>}
+              </div>
+              <span className="goal-card-title">{g.title}</span>
+              {g.domain && <span className="goal-card-domain">{g.domain}</span>}
+              <div className="goal-card-meta">
+                <span>{g.linkedCount} {g.linkedCount === 1 ? "check-in" : "check-ins"}</span>
+                {g.lastTouched && <span>· {timeAgo(g.lastTouched)}</span>}
+              </div>
+              {g.sentimentTrend?.length > 1 && (
+                <div className="domain-trend-bar">
+                  {[...g.sentimentTrend].reverse().map((s, i) => (
+                    <span key={i} className="domain-trend-dot" style={{ background: goalMoodColor(s) }} />
+                  ))}
+                </div>
+              )}
+              {g.latestNextStep && <p className="goal-card-next">→ {g.latestNextStep}</p>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Goal detail: one goal's standing + the check-ins moving it ──
+function GoalCard({ data, onOpen, onBack }) {
+  if (!data) {
+    return (
+      <div className="v-panel domain-card">
+        <div className="domain-top"><button className="back-btn" onClick={onBack}>← back</button></div>
+        <p className="goal-empty">loading…</p>
+      </div>
+    );
+  }
+  const { title, domain, status, metric, why, entries = [], latestNextStep, sentimentTrend = [], stalled } = data;
+  // Pull each entry's reflection FOR THIS goal (matched by title).
+  const reflFor = (e) => (e.analysis?.goalReflections || []).find(
+    (r) => (r.goal || "").trim().toLowerCase() === title.trim().toLowerCase()
+  );
+  const moveColor = { toward: "#22c55e", away: "#ef4444", neutral: "#eab308" };
+
+  return (
+    <div className="v-panel domain-card">
+      <div className="domain-top">
+        <button className="back-btn" onClick={onBack}>← back</button>
+        <div className="domain-head">
+          <h2 className="domain-title">{title}</h2>
+          <span className="domain-sub">
+            {domain && <>{domain} · </>}{entries.length} {entries.length === 1 ? "check-in" : "check-ins"}
+            {stalled && <> · <span className="goal-stalled-badge">stalled</span></>}
+          </span>
+        </div>
+      </div>
+
+      <div className="domain-hero">
+        <div className="domain-hero-meta">
+          <span className="r-kicker">where this goal stands</span>
+          <span className={`goal-status goal-status-${status}`}>{status}</span>
+        </div>
+        {metric && <p className="goal-metric">target: {metric}</p>}
+        {why && <p className="goal-why">why: {why}</p>}
+        {latestNextStep && <p className="goal-next">→ {latestNextStep}</p>}
+        {sentimentTrend.length > 1 && (
+          <div className="domain-trend">
+            <span className="domain-trend-label">mood over time</span>
+            <div className="domain-trend-bar">
+              {[...sentimentTrend].reverse().map((s, i) => (
+                <span key={i} className="domain-trend-dot" style={{ background: goalMoodColor(s) }} />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {entries.length > 0 && (
+        <div className="domain-section">
+          <span className="domain-section-label">check-ins moving this</span>
+          <div className="domain-timeline">
+            {entries.map((e, i) => {
+              const r = reflFor(e);
+              const ready = e.status === "ready";
+              return (
+                <div key={i} className={`domain-note ${ready ? "" : "is-pending"}`} onClick={() => ready && onOpen(e)}>
+                  <span className="domain-note-dot" style={{ background: goalMoodColor(e.analysis?.sentiment) }} />
+                  <div className="domain-note-body">
+                    <div className="domain-note-head">
+                      <span className="domain-note-date">{fmtTime(e.recordedAt)} · {timeAgo(e.recordedAt)}</span>
+                      {r?.movement && (
+                        <span className="goal-move" style={{ color: moveColor[r.movement], borderColor: moveColor[r.movement] }}>
+                          {r.movement}
+                        </span>
+                      )}
+                    </div>
+                    <span className="domain-note-title">{e.title || "Untitled"}</span>
+                    <p className="domain-note-text">{r?.note || e.analysis?.summary}</p>
+                    {r?.nextStep && <p className="goal-note-next">→ {r.nextStep}</p>}
+                  </div>
+                  {ready && <span className="domain-note-go">→</span>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Music picker: tap to cycle, long-press for genre dropdown ──
 function MusicPicker({ musicGenre, cycleMusic, musicOpen, setMusicOpen }) {
   const timerRef = useRef(null);
@@ -645,6 +780,29 @@ function Reader({ entry, seg, segments, page, focusDomain, onPage, onSeek, onBac
           <h1 className="r-title">{entry.title || "Untitled"}</h1>
           {focusDomain && <span className="r-focus-tag">focused on · {focusDomain}</span>}
           {a.standing && <p className="r-standing">{a.standing}</p>}
+          {a.nextStep && (
+            <div className="r-nextstep">
+              <span className="r-nextstep-label">next step</span>
+              <p>{a.nextStep}</p>
+            </div>
+          )}
+          {a.goalReflections?.length > 0 && (
+            <div className="r-section">
+              <span className="r-kicker">goals touched</span>
+              <div className="r-goals">
+                {a.goalReflections.map((r, i) => (
+                  <div key={i} className="r-goal">
+                    <div className="r-goal-head">
+                      <span className="r-goal-name">{r.goal}</span>
+                      <span className={`goal-move goal-move-${r.movement}`}>{r.movement}</span>
+                    </div>
+                    {r.note && <p className="r-goal-note">{r.note}</p>}
+                    {r.nextStep && <p className="goal-note-next">→ {r.nextStep}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="r-stats">
             <span><b>{moodLabel(a.sentiment)}</b><i>mood</i></span>
             <span><b>{ARC[a.trajectory] || "→"} {a.trajectory}</b><i>arc</i></span>

@@ -92,6 +92,20 @@ export const listNotes = () => request("/notes");
 export const createNote = (text) =>
   request("/notes", { method: "POST", body: JSON.stringify({ text }) });
 
+// ── Goals ──
+export const listGoals = () => request("/goals");
+export const getGoal = (id) => request(`/goals/${id}`);
+export const createGoal = (data) =>
+  request("/goals", { method: "POST", body: JSON.stringify(data) });
+export const updateGoal = (id, data) =>
+  request(`/goals/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+export const deleteGoal = (id) =>
+  request(`/goals/${id}`, { method: "DELETE" });
+export const backfillGoals = () =>
+  request("/goals/backfill", { method: "POST" });
+export const reanalyzeEntry = (id) =>
+  request(`/entries/${id}/reanalyze`, { method: "POST" });
+
 export const listFeedback = () => request("/feedback");
 export const submitFeedback = (text) =>
   request("/feedback", { method: "POST", body: JSON.stringify({ text }) });

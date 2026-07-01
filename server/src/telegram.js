@@ -12,9 +12,10 @@ import { randomUUID } from "node:crypto";
 import Entry from "./models/Entry.js";
 import { MEDIA_DIR } from "./index.js";
 import { runPipeline } from "./pipeline.js";
-import { uploadMedia } from "./cloudinary.js";
+import { EFFECTS, EFFECT_KEYS, byCategory, CATEGORY_LABELS, DISPLAY_FIELD_ORDER } from "./effects.js";
 
 const log = (tag, ...a) => console.log(`[tg:${tag}]`, ...a);
+const logErr = (tag, ...a) => console.error(`[tg:${tag}]`, ...a);
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const CHANNEL_ID = process.env.TELEGRAM_CHANNEL_ID;
@@ -39,29 +40,38 @@ function mediaFilename(originalName, mime) {
   return `${Date.now()}-${randomUUID().slice(0, 8)}${ext}`;
 }
 
-const EFFECT_KEYBOARD = {
-  inline_keyboard: [
-    [
-      { text: "dither", callback_data: "fx:dither" },
-      { text: "retro", callback_data: "fx:retro" },
-      { text: "pixel", callback_data: "fx:pixel" },
-    ],
-    [
-      { text: "cartoon", callback_data: "fx:cartoon" },
-      { text: "glitch", callback_data: "fx:glitch" },
-      { text: "vhs", callback_data: "fx:vhs" },
-    ],
-    [
-      { text: "bw", callback_data: "fx:bw" },
-      { text: "dither+retro", callback_data: "fx:dither,retro" },
-      { text: "skip", callback_data: "fx:none" },
-    ],
-  ],
-};
+function chunk(arr, n) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+  return out;
+}
+
+// Build the multi-select effect keyboard from the registry, grouped by category.
+// `selected` is a Set of effect keys; chosen effects show a ✓.
+function effectKeyboard(selected = new Set()) {
+  const rows = [];
+  for (const [cat, keys] of Object.entries(byCategory)) {
+    rows.push([{ text: `— ${CATEGORY_LABELS[cat] || cat} —`, callback_data: "fxnoop" }]);
+    for (const group of chunk(keys, 3)) {
+      rows.push(
+        group.map((k) => ({
+          text: `${selected.has(k) ? "✓ " : ""}${EFFECTS[k].label}`,
+          callback_data: `fxt:${k}`,
+        }))
+      );
+    }
+  }
+  rows.push([
+    { text: "🎲 surprise", callback_data: "fxrand" },
+    { text: `✅ apply (${selected.size})`, callback_data: "fxgo" },
+    { text: "✕ cancel", callback_data: "fxcancel" },
+  ]);
+  return { inline_keyboard: rows };
+}
 
 function effectLabel(effects) {
   if (!effects?.length) return "none";
-  return effects.join(" + ");
+  return effects.map((k) => EFFECTS[k]?.label || k).join(" + ");
 }
 
 async function ingestFile(ctx, file, title) {
@@ -122,8 +132,11 @@ function sendWithEffects(bot, ctx, entry, effects) {
       let caption = lines.join("\n");
       if (caption.length > 1024) caption = caption.slice(0, 1020) + "…";
 
-      // Send the processed video (retro/compressed/whatever is best)
-      const videoUrl = full.retroPath || full.cartoonPath || full.compressedPath || full.mediaPath;
+      // Send the best available processed clip: prefer an applied effect (in
+      // display order), then the plain compressed video, then the original.
+      const videoUrl =
+        DISPLAY_FIELD_ORDER.map((f) => full[f]).find(Boolean) ||
+        full.compressedPath || full.mediaPath;
       if (!videoUrl) return;
 
       const res = await fetch(videoUrl);
@@ -158,6 +171,8 @@ export function startBot() {
     ctx.reply(
       "send me a video, round video, or voice note and i'll turn it into a diary entry.\n\n" +
       "add a caption to set the title.\n\n" +
+      `i can apply ${EFFECT_KEYS.length} visual effects (analog, digital & artistic) — ` +
+      "tap to toggle any combo, then ✅ apply, or hit 🎲 surprise.\n\n" +
       "commands:\n" +
       "/status — list recent entries and their pipeline status\n" +
       "/help — this message"
@@ -166,7 +181,9 @@ export function startBot() {
 
   bot.command("help", (ctx) =>
     ctx.reply(
-      "send a video → i download it, ask which effects to apply, transcribe, analyze with AI, and send you the insights.\n\n" +
+      "send a video → i download it, let you pick effects, transcribe, analyze with AI, and send you the insights.\n\n" +
+      `effects (${EFFECT_KEYS.length}): ${EFFECT_KEYS.map((k) => EFFECTS[k].label).join(", ")}\n\n` +
+      "tap effects to toggle, ✅ apply to run the chosen set, 🎲 surprise for a random pick, or ✅ apply with none selected to skip effects.\n\n" +
       "caption = title\n" +
       "/status = recent entries"
     )
@@ -195,27 +212,52 @@ export function startBot() {
     ctx.reply(lines.join("\n"));
   });
 
-  // Handle effect selection callbacks
+  // Handle effect selection callbacks (multi-select toggle keyboard)
+  const setProcessing = async (ctx, effects) => {
+    const caption = `effects: ${effectLabel(effects)}\nprocessing...`;
+    try { await ctx.editMessageCaption({ caption }); }
+    catch { await ctx.editMessageText(caption).catch(() => {}); }
+  };
+
   bot.on("callback_query:data", async (ctx) => {
     const data = ctx.callbackQuery.data;
-    if (!data.startsWith("fx:")) return;
+    if (!/^(fxt:|fxgo|fxrand|fxcancel|fxnoop)/.test(data)) return;
 
-    await ctx.answerCallbackQuery();
-
-    const effects = data === "fx:none" ? [] : data.replace("fx:", "").split(",");
     const key = ctx.chat.id;
     const p = pending.get(key);
-    if (!p) {
-      try { await ctx.editMessageCaption({ caption: `effects: ${effectLabel(effects)}\nprocessing...` }); }
-      catch { await ctx.editMessageText(`effects: ${effectLabel(effects)}\nprocessing...`).catch(() => {}); }
+
+    // Category header / expired selection — just acknowledge.
+    if (data === "fxnoop") return ctx.answerCallbackQuery();
+    if (!p) return ctx.answerCallbackQuery({ text: "this one already ran — send a new video" });
+
+    // Toggle an effect and re-render the keyboard in place.
+    if (data.startsWith("fxt:")) {
+      const fx = data.slice(4);
+      if (!EFFECT_KEYS.includes(fx)) return ctx.answerCallbackQuery();
+      p.selected.has(fx) ? p.selected.delete(fx) : p.selected.add(fx);
+      await ctx.answerCallbackQuery({ text: `${EFFECTS[fx].label} ${p.selected.has(fx) ? "added" : "removed"}` });
+      await ctx.editMessageReplyMarkup({ reply_markup: effectKeyboard(p.selected) }).catch(() => {});
       return;
     }
 
+    if (data === "fxcancel") {
+      pending.delete(key);
+      await ctx.answerCallbackQuery({ text: "cancelled" });
+      try { await ctx.editMessageCaption({ caption: "cancelled." }); }
+      catch { await ctx.editMessageText("cancelled.").catch(() => {}); }
+      return;
+    }
+
+    // Apply — either the accumulated selection or a random surprise pick.
+    let effects;
+    if (data === "fxrand") {
+      effects = [...EFFECT_KEYS].sort(() => Math.random() - 0.5).slice(0, 1 + Math.floor(Math.random() * 2));
+    } else { // fxgo
+      effects = [...p.selected];
+    }
+    await ctx.answerCallbackQuery();
     pending.delete(key);
-
-    try { await ctx.editMessageCaption({ caption: `effects: ${effectLabel(effects)}\nprocessing...` }); }
-    catch { await ctx.editMessageText(`effects: ${effectLabel(effects)}\nprocessing...`).catch(() => {}); }
-
+    await setProcessing(ctx, effects);
     sendWithEffects(bot, ctx, p.entry, effects);
   });
 
@@ -232,19 +274,20 @@ export function startBot() {
         execSync(`ffmpeg -y -i "${mediaPath}" -frames:v 1 -vf "scale=480:-2" -update 1 -q:v 4 "${previewPath}"`, { timeout: 10000 });
       } catch { previewPath = null; }
 
-      const caption = `downloaded: ${entry.title || "(untitled)"}\n\npick effects to apply:`;
+      const caption = `downloaded: ${entry.title || "(untitled)"}\n\ntap to toggle effects, then ✅ apply — or 🎲 surprise:`;
+      const keyboard = effectKeyboard(new Set());
 
       if (previewPath && fs.existsSync(previewPath)) {
         await ctx.replyWithPhoto(new InputFile(previewPath), {
           caption,
-          reply_markup: EFFECT_KEYBOARD,
+          reply_markup: keyboard,
         });
         fs.unlinkSync(previewPath);
       } else {
-        await ctx.reply(caption, { reply_markup: EFFECT_KEYBOARD });
+        await ctx.reply(caption, { reply_markup: keyboard });
       }
 
-      pending.set(ctx.chat.id, { entry });
+      pending.set(ctx.chat.id, { entry, selected: new Set() });
     } catch (e) {
       log("error", `${sourceLabel} handler failed:`, e.message);
       await ctx.reply(`error: ${e.message}`);
