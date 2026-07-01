@@ -1136,7 +1136,7 @@ input { font-family: inherit; }
 }
 
 .v-home { gap: 1.1rem; }
-.hero-line { font-family: var(--font-mono); font-size: 1.4rem; letter-spacing: 0.04em; color: rgba(255,255,255,0.72); text-shadow: 0 2px 12px rgba(0,0,0,0.85); text-transform: lowercase; font-style: italic; }
+.hero-line { font-family: var(--font-mono); font-size: 1.4rem; letter-spacing: 0.04em; color: rgba(255,255,255,0.72); text-shadow: 0 2px 12px rgba(0,0,0,0.85); text-transform: lowercase; font-style: italic; text-align: center; max-width: 90vw; }
 .latest-text {
   display: flex; align-items: center; gap: 0.8rem;
   font-family: var(--font-display); font-weight: 600; font-size: 1rem;
@@ -1144,10 +1144,11 @@ input { font-family: inherit; }
   transition: all 0.2s; text-transform: lowercase;
   background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
   border-radius: 999px; padding: 0.5rem 1.2rem;
+  max-width: 90vw; overflow: hidden;
 }
 .latest-text:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2); transform: translateY(-2px); box-shadow: 0 4px 20px rgba(239,68,68,0.2); }
 .latest-label { font-family: var(--font-mono); font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--accent); font-weight: 700; }
-.latest-title { font-weight: 700; font-size: 1.1rem; color: #fff; font-style: italic; }
+.latest-title { font-weight: 700; font-size: 1.1rem; color: #fff; font-style: italic; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .latest-arrow { color: var(--accent); font-size: 1.2rem; transition: transform 0.2s; }
 .latest-text:hover .latest-arrow { transform: translateX(4px); }
 .latest-video-wrap { position: relative; width: 280px; height: 160px; border-radius: 12px; overflow: hidden; cursor: pointer; border: 1px solid var(--glass-border); margin-top: 0.8rem; transition: transform 0.2s, border-color 0.2s; }
@@ -1163,7 +1164,8 @@ input { font-family: inherit; }
 /* domain words — scattered text, no box, cycling highlight */
 .dom-scatter {
   position: relative; display: flex; flex-wrap: wrap; justify-content: center;
-  align-items: center; gap: 1.2rem 2.5rem; max-width: 700px; min-height: 80px; margin-top: 0.5rem;
+  align-items: center; gap: 1.2rem 2.5rem; min-height: 80px; margin-top: 0.5rem;
+  max-width: min(700px, 90vw);
 }
 .dom-word {
   font-family: var(--font-display); font-weight: 800; font-size: 1.5rem;
@@ -1171,6 +1173,7 @@ input { font-family: inherit; }
   transition: color 0.4s, text-shadow 0.4s, transform 0.2s; cursor: pointer;
   animation: domainPulse var(--cycle, 16s) ease-in-out infinite;
   animation-delay: var(--d, 0s); position: relative;
+  min-width: 0;
 }
 .dom-word sup {
   font-family: var(--font-mono); font-size: 0.55rem; color: rgba(255,255,255,0.15);
@@ -1507,3 +1510,119 @@ input { font-family: inherit; }
 .r-quote { font-style: italic; color: rgba(255,255,255,0.85); line-height: 1.5; border-radius: 0; padding-left: 0.7rem; margin: 0.1rem 0; }
 .r-idea { color: rgba(255,255,255,0.8); line-height: 1.45; margin: 0.1rem 0; }
 .r-follow { color: rgba(255,255,255,0.7); line-height: 1.45; font-style: italic; margin: 0.1rem 0; }
+
+/* ═══════════════════════════════════════════════════════════════════════ */
+/*  SMALL PHONES (≤ 480px)                                                */
+/* ═══════════════════════════════════════════════════════════════════════ */
+@media (max-width: 480px) {
+  /* hero title — smaller on tiny screens */
+  .hero {
+    font-size: clamp(2rem, 11vw, 3rem);
+    letter-spacing: -0.04em;
+  }
+  .hero::before, .hero::after { opacity: 0.4; }
+
+  /* hero stats line */
+  .hero-line {
+    font-size: 0.65rem;
+    letter-spacing: 0.01em;
+    max-width: 85vw;
+    line-height: 1.5;
+  }
+
+  /* latest entry button — tighter */
+  .latest-text {
+    font-size: 0.68rem;
+    padding: 0.3rem 0.7rem;
+    gap: 0.4rem;
+    max-width: 88vw;
+  }
+  .latest-label { font-size: 0.45rem; }
+  .latest-title {
+    font-size: 0.72rem;
+    max-width: 55vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .latest-arrow { font-size: 0.8rem; }
+
+  /* domain scatter — tighter gaps, smaller words */
+  .dom-scatter {
+    gap: 0.6rem 1rem;
+    max-width: 90vw;
+  }
+  .dom-word {
+    font-size: 1.1rem;
+    font-weight: 700;
+  }
+  .dom-word sup { font-size: 0.45rem; }
+
+  /* home view padding */
+  .v-home { gap: 0.6rem; }
+  .home, .stage { padding-left: 0.8rem; padding-right: 0.8rem; }
+
+  /* nav dock — compact on phones */
+  .nav-dock { gap: 0.1rem; bottom: 0.5rem; padding: 0.2rem; }
+  .nav-item { min-width: 44px; padding: 0.3rem 0.4rem 0.25rem; }
+  .nav-icon { width: 18px; height: 18px; }
+  .nav-label { font-size: 0.4rem; letter-spacing: 0.03em; }
+
+  /* music picker — safe area aware */
+  .music-picker, .music-corner { top: 0.5rem; right: 0.6rem; }
+  .music-corner { font-size: 1.1rem; }
+  .music-dropdown { min-width: 88px; }
+  .music-opt { font-size: 0.6rem; padding: 0.3rem 0.5rem; }
+
+  /* panels — full width on phones */
+  .v-panel {
+    padding: 0.7rem !important;
+    border-radius: 12px !important;
+    max-width: 100%;
+  }
+  .view-head2 { gap: 0.4rem; margin-bottom: 0.5rem; }
+  .view-head2 h2 { font-size: 0.9rem; }
+  .back-btn { font-size: 0.58rem; }
+
+  /* bg captions */
+  .bg-captions { bottom: 52px; width: 94%; }
+  .bg-captions p { font-size: 0.65rem; }
+
+  /* tap play overlay */
+  .tap-play-icon { font-size: 1.8rem; }
+  .tap-play-text { font-size: 0.6rem; letter-spacing: 0.1em; }
+
+  /* stage bottom padding for nav */
+  .stage { padding-bottom: 3.4rem; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════ */
+/*  LANDSCAPE / SHORT SCREENS (height ≤ 500px)                            */
+/* ═══════════════════════════════════════════════════════════════════════ */
+@media (max-height: 500px) {
+  .v-home {
+    gap: 0.4rem;
+    justify-content: flex-start;
+    padding-top: 0.5rem;
+  }
+  .hero {
+    font-size: clamp(1.8rem, 6vw, 3rem);
+    margin-bottom: 0.4rem;
+  }
+  .hero-line { font-size: 0.6rem; margin-bottom: 0.2rem; }
+  .latest-text { padding: 0.25rem 0.6rem; }
+  .dom-scatter { gap: 0.4rem 0.8rem; min-height: auto; }
+  .dom-word { font-size: 0.9rem; }
+  .nav-dock { bottom: 0.3rem; padding: 0.15rem; }
+  .nav-item { min-width: 40px; padding: 0.25rem 0.35rem 0.2rem; }
+  .nav-label { font-size: 0.38rem; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════ */
+/*  SAFE AREA INSETS (notched devices)                                     */
+/* ═══════════════════════════════════════════════════════════════════════ */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .nav-dock { padding-bottom: calc(0.35rem + env(safe-area-inset-bottom)); }
+  .stage { padding-bottom: calc(5.5rem + env(safe-area-inset-bottom)); }
+  .music-picker, .music-corner { top: calc(1.2rem + env(safe-area-inset-top)); }
+}
